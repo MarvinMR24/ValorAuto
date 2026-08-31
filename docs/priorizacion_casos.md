@@ -14,9 +14,9 @@
 
 - **Valor (4):** usuario claro (alguien que quiere tasar su auto al instante subiendo una foto); resultado medible y fácil de demostrar en una presentación.
 - **Datos (4):** el Craigslist Vehicles Dataset (Kaggle, ~426,880 filas) trae marca, modelo, año y odometer directamente; se puede complementar con Cars.com Used Car Listings o el US Used Cars Dataset para ampliar cobertura y variables (historial de accidentes, tipo de motor). Único caso de los tres con una fuente de datos ya verificada y suficiente en volumen.
-- **Factibilidad (4):** las 5 fases (entrenamiento, precálculo nocturno, visión con Gemini, FastAPI, interfaz) son alcanzables en el cronograma del semestre con herramientas estándar (Scikit-Learn/XGBoost, SQLite/Redis, cron/Airflow, FastAPI, Streamlit).
+- **Factibilidad (4):** las 5 fases (entrenamiento, precálculo nocturno, visión con Gemini, backend, interfaz) son alcanzables en el cronograma del semestre con herramientas estándar (Scikit-Learn/XGBoost + MLflow, SQLite/Redis, cron/Airflow, Node.js/Express, React Native + Expo).
 - **Riesgo (3):** el dataset base tiene ~23-36% de valores nulos según la columna, lo que exige limpieza cuidadosa; además hay dependencia de la API de Gemini para el componente de visión (costo y disponibilidad).
-- **Despliegue (3):** requiere coordinar dos piezas (job nocturno + servicio en tiempo real), más complejo que un CRUD simple, pero con herramientas bien documentadas (cron/Airflow + FastAPI).
+- **Despliegue (3):** requiere coordinar dos piezas (job nocturno + servicio en tiempo real), más complejo que un CRUD simple, pero con herramientas bien documentadas (cron/Airflow + Express).
 
 ## Justificación — Caso B: PromptForge (descartado)
 

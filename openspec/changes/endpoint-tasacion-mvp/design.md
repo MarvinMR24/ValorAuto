@@ -1,6 +1,6 @@
 ## Context
 
-`src/api` (FastAPI) orquesta dos dependencias: `src/vision` (Gemini, identifica el vehículo desde la foto) y la tabla precalculada que genera `src/pipeline` en el job nocturno. Ver `proposal.md - Why` para la motivación; ver `specs/tasacion/spec.md` para el contrato completo.
+`src/api` (Node.js/Express) orquesta dos dependencias: `src/vision` (Gemini, identifica el vehículo desde la foto) y la tabla precalculada que genera `src/pipeline` en el job nocturno. Ver `proposal.md - Why` para la motivación; ver `specs/tasacion/spec.md` para el contrato completo.
 
 ## Goals / Non-Goals
 
