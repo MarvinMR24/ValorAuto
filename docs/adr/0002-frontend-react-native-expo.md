@@ -21,5 +21,5 @@ La interfaz de usuario se construye como una app móvil en **React Native + Expo
 ## Consecuencias
 
 - El esqueleto de la app vive en `app/` (Expo + TypeScript), ver `app/README.md` para cómo correrlo.
-- Se necesita Expo Go instalado en el dispositivo de demo, o un build de desarrollo, como respaldo si falla la conectividad el día de la defensa (regla de la sesión de evaluación en las reglas de EC01).
+- Se necesita Expo Go instalado en el dispositivo de demo, o un build de desarrollo, como respaldo si falla la conectividad el día de la defensa.
 - `docs/SDD.md` fue corregido para reflejar React Native + Expo en vez de Streamlit (era una incoherencia entre documentos).

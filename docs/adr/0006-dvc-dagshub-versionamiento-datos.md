@@ -6,7 +6,7 @@
 
 ## Contexto
 
-El dataset limpio (`vehicles_clean.csv`, ~348 MB) es demasiado pesado para versionar directamente en git, y el equipo necesita poder reproducir exactamente qué versión del dataset se usó para entrenar cada modelo (trazabilidad Datos → Modelo → Métrica, que pide la rúbrica de EC01).
+El dataset limpio (`vehicles_clean.csv`, ~348 MB) es demasiado pesado para versionar directamente en git, y el equipo necesita poder reproducir exactamente qué versión del dataset se usó para entrenar cada modelo (trazabilidad Datos → Modelo → Métrica).
 
 ## Decisión
 

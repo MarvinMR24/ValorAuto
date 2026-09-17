@@ -13,4 +13,4 @@ Este documento ubica cada fase de CRISP-ML(Q) (Cross-Industry Standard Process f
 
 ## Nota sobre el estado actual
 
-El pipeline completo (`01_eda.ipynb` → `02_entrenamiento.ipynb` → `03_precalculo.ipynb`) ya se corrió de punta a punta contra el dataset real completo (2026-09-17); resultados y gráficos en `docs/evidence/baseline-modelo.md` y `src/graphics/`. Sigue pendiente que el equipo pueda reproducir esta misma corrida con `dvc pull` en vez de colocar el CSV crudo a mano, porque el remoto de DagsHub sigue siendo privado (riesgo R1 en `docs/risk-register.md`).
+El pipeline completo (`01_eda.ipynb` → `02_entrenamiento.ipynb` → `03_precalculo.ipynb`) ya se corrió de punta a punta contra el dataset real completo (2026-09-17); resultados y gráficos en `docs/evidence/baseline-modelo.md` y `src/graphics/`. El dataset ya es reproducible con `dvc pull` desde el remoto propio del equipo en DagsHub (`SNARF3/ValorAutoData`, ver [ADR-0006](adr/0006-dvc-dagshub-versionamiento-datos.md)).

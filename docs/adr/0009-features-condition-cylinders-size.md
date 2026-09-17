@@ -25,7 +25,7 @@ También se probó `cylinders` como valor **numérico** (extraído del string, `
 
 ## Alternativas consideradas
 
-- **No agregarlas y quedarse con las 7 features originales:** se descartó porque el experimento mostró una mejora real y consistente, y la regla de EC01 pide justificar decisiones frente a alternativas — mantenerlas afuera sin haber probado el efecto habría sido la opción no justificada, no al revés.
+- **No agregarlas y quedarse con las 7 features originales:** se descartó porque el experimento mostró una mejora real y consistente — mantenerlas afuera sin haber probado el efecto habría sido la opción no justificada, no al revés.
 - **`cylinders` como número en vez de categoría:** se probó y se descartó por no mejorar el resultado (ver arriba).
 - **Agregar también `region`, `state`, `lat`/`long`** (para ajustar precios por zona, mencionado como idea a futuro): se pospone explícitamente. La idea de usar variación geográfica de precios de EE. UU. para estimar un ajuste al mercado boliviano es interesante pero es un problema de modelado distinto (requiere decidir cómo mapear/ajustar precios entre mercados, no solo agregar una columna) y no se resolvió en este cambio; queda como mejora futura relacionada con el riesgo **R2** en `docs/risk-register.md`.
 
