@@ -1,0 +1,70 @@
+<mxfile host="app.diagrams.net">
+  <diagram id="c4-container-valorauto" name="ValorAuto - C4 Contenedores">
+    <mxGraphModel dx="1400" dy="900" grid="1" gridSize="10" guides="1" tooltips="1" connect="1" arrows="1" fold="1" page="1" pageScale="1" pageWidth="1650" pageHeight="1100" math="0" shadow="0">
+      <root>
+        <mxCell id="0" />
+        <mxCell id="1" parent="0" />
+        <mxCell id="usuario" value="Usuario&#10;[Persona]&#10;&#10;Quiere tasar un auto usado (venderlo o comprarlo)" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#08427B;strokeColor=#073B6F;fontColor=#FFFFFF;fontSize=11;align=center;verticalAlign=middle;" vertex="1" parent="1">
+          <mxGeometry x="40" y="60" width="200" height="110" as="geometry" />
+        </mxCell>
+        <mxCell id="app_movil" value="App Movil&#10;[Contenedor: React Native + Expo]&#10;&#10;Sube foto + kilometraje, muestra el precio estimado" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#1168BD;strokeColor=#0B4884;fontColor=#FFFFFF;fontSize=11;align=center;verticalAlign=middle;" vertex="1" parent="1">
+          <mxGeometry x="320" y="60" width="220" height="110" as="geometry" />
+        </mxCell>
+        <mxCell id="api_backend" value="API Backend&#10;[Contenedor: Node.js + Express]&#10;&#10;Orquesta validacion, vision y consulta de precio (POST /tasacion)" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#1168BD;strokeColor=#0B4884;fontColor=#FFFFFF;fontSize=11;align=center;verticalAlign=middle;" vertex="1" parent="1">
+          <mxGeometry x="620" y="60" width="240" height="110" as="geometry" />
+        </mxCell>
+        <mxCell id="gemini" value="Servicio de Vision&#10;[Sistema externo: Google Gemini API]&#10;&#10;Identifica marca, modelo y anio a partir de la foto" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#999999;strokeColor=#6B6B6B;fontColor=#FFFFFF;fontSize=11;align=center;verticalAlign=middle;" vertex="1" parent="1">
+          <mxGeometry x="620" y="260" width="240" height="110" as="geometry" />
+        </mxCell>
+        <mxCell id="sqlite_precalc" value="Base de Precalculo&#10;[Contenedor: SQLite - precalc.db]&#10;&#10;Tabla combinacion -&gt; precio, indexada para lectura ultrarrapida" style="shape=cylinder3;whiteSpace=wrap;html=1;fillColor=#1168BD;strokeColor=#0B4884;fontColor=#FFFFFF;fontSize=11;boundedLbl=1;" vertex="1" parent="1">
+          <mxGeometry x="940" y="60" width="240" height="120" as="geometry" />
+        </mxCell>
+        <mxCell id="cron" value="Orquestador Nocturno&#10;[Contenedor: cron / Airflow]&#10;&#10;Dispara el pipeline todos los dias a las 3:00 AM" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#2E7D32;strokeColor=#1B5E20;fontColor=#FFFFFF;fontSize=11;align=center;verticalAlign=middle;" vertex="1" parent="1">
+          <mxGeometry x="940" y="330" width="240" height="110" as="geometry" />
+        </mxCell>
+        <mxCell id="pipeline_ml" value="Pipeline de ML&#10;[Contenedor: Python - src/model y src/pipeline]&#10;&#10;Limpieza, entrenamiento del modelo propio y generacion de combinaciones" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#1168BD;strokeColor=#0B4884;fontColor=#FFFFFF;fontSize=11;align=center;verticalAlign=middle;" vertex="1" parent="1">
+          <mxGeometry x="1240" y="260" width="260" height="130" as="geometry" />
+        </mxCell>
+        <mxCell id="mlflow" value="MLflow Tracking/Registry&#10;[Contenedor: SQLite - mlflow.db]&#10;&#10;Registra experimentos y promueve el mejor modelo a Production" style="shape=cylinder3;whiteSpace=wrap;html=1;fillColor=#1168BD;strokeColor=#0B4884;fontColor=#FFFFFF;fontSize=11;boundedLbl=1;" vertex="1" parent="1">
+          <mxGeometry x="1240" y="60" width="260" height="120" as="geometry" />
+        </mxCell>
+        <mxCell id="dvc_dagshub" value="Dataset Versionado&#10;[Sistema externo: DVC + DagsHub]&#10;&#10;Almacena y versiona vehicles_clean.csv (dvc pull / dvc push)" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#999999;strokeColor=#6B6B6B;fontColor=#FFFFFF;fontSize=11;align=center;verticalAlign=middle;" vertex="1" parent="1">
+          <mxGeometry x="1560" y="260" width="260" height="110" as="geometry" />
+        </mxCell>
+        <mxCell id="e1" value="1. Sube foto + km" style="edgeStyle=orthogonalEdgeStyle;rounded=0;html=1;fontSize=10;endArrow=block;elbow=vertical;" edge="1" parent="1" source="usuario" target="app_movil">
+          <mxGeometry relative="1" as="geometry" />
+        </mxCell>
+        <mxCell id="e2" value="2. POST /tasacion (imagen, km)" style="edgeStyle=orthogonalEdgeStyle;rounded=0;html=1;fontSize=10;endArrow=block;elbow=vertical;" edge="1" parent="1" source="app_movil" target="api_backend">
+          <mxGeometry relative="1" as="geometry" />
+        </mxCell>
+        <mxCell id="e3" value="3. Envia foto para identificacion" style="edgeStyle=orthogonalEdgeStyle;rounded=0;html=1;fontSize=10;endArrow=block;elbow=vertical;" edge="1" parent="1" source="api_backend" target="gemini">
+          <mxGeometry relative="1" as="geometry" />
+        </mxCell>
+        <mxCell id="e4" value="4. JSON {marca, modelo, anio, confianza}" style="edgeStyle=orthogonalEdgeStyle;rounded=0;html=1;fontSize=10;endArrow=block;elbow=vertical;" edge="1" parent="1" source="gemini" target="api_backend">
+          <mxGeometry relative="1" as="geometry" />
+        </mxCell>
+        <mxCell id="e5" value="5. Consulta (marca, modelo, anio, rango_km)" style="edgeStyle=orthogonalEdgeStyle;rounded=0;html=1;fontSize=10;endArrow=block;elbow=vertical;" edge="1" parent="1" source="api_backend" target="sqlite_precalc">
+          <mxGeometry relative="1" as="geometry" />
+        </mxCell>
+        <mxCell id="e6" value="6. precio_estimado / min / max" style="edgeStyle=orthogonalEdgeStyle;rounded=0;html=1;fontSize=10;endArrow=block;elbow=vertical;" edge="1" parent="1" source="sqlite_precalc" target="api_backend">
+          <mxGeometry relative="1" as="geometry" />
+        </mxCell>
+        <mxCell id="e7" value="7. Respuesta con el precio" style="edgeStyle=orthogonalEdgeStyle;rounded=0;html=1;fontSize=10;endArrow=block;elbow=vertical;" edge="1" parent="1" source="api_backend" target="app_movil">
+          <mxGeometry relative="1" as="geometry" />
+        </mxCell>
+        <mxCell id="e8" value="A. dvc pull (dataset actualizado)" style="edgeStyle=orthogonalEdgeStyle;rounded=0;html=1;fontSize=10;endArrow=block;elbow=vertical;dashed=1;" edge="1" parent="1" source="cron" target="dvc_dagshub">
+          <mxGeometry relative="1" as="geometry" />
+        </mxCell>
+        <mxCell id="e9" value="B. Dispara entrenamiento/precalculo (3:00 AM)" style="edgeStyle=orthogonalEdgeStyle;rounded=0;html=1;fontSize=10;endArrow=block;elbow=vertical;dashed=1;" edge="1" parent="1" source="cron" target="pipeline_ml">
+          <mxGeometry relative="1" as="geometry" />
+        </mxCell>
+        <mxCell id="e10" value="C. Registra metricas, promueve modelo a Production" style="edgeStyle=orthogonalEdgeStyle;rounded=0;html=1;fontSize=10;endArrow=block;elbow=vertical;dashed=1;" edge="1" parent="1" source="pipeline_ml" target="mlflow">
+          <mxGeometry relative="1" as="geometry" />
+        </mxCell>
+        <mxCell id="e11" value="D. Escribe tabla de precios precalculada" style="edgeStyle=orthogonalEdgeStyle;rounded=0;html=1;fontSize=10;endArrow=block;elbow=vertical;dashed=1;" edge="1" parent="1" source="pipeline_ml" target="sqlite_precalc">
+          <mxGeometry relative="1" as="geometry" />
+        </mxCell>
+      </root>
+    </mxGraphModel>
+  </diagram>
+</mxfile>
