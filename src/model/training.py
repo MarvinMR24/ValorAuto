@@ -12,6 +12,7 @@ import numpy as np
 import mlflow
 import mlflow.data
 import mlflow.sklearn
+from mlflow.exceptions import MlflowException
 from mlflow.tracking import MlflowClient
 from sklearn.base import clone
 from sklearn.ensemble import RandomForestRegressor
@@ -130,13 +131,36 @@ def promote_best_model(results: dict) -> tuple[str, str]:
     encontró probando esto: `cargar_modelo_production()` en
     src/pipeline/precalculo.py pide justamente "la" versión Production, y esa
     ambigüedad es exactamente lo que este flag evita).
+
+    Bug real encontrado corriendo contra el MLflow remoto de DagsHub
+    (2026-09-17): `mlflow.register_model()` (la función de conveniencia) en
+    MLflow 3.x intenta resolver el modelo del run a través del concepto
+    nuevo de "Logged Model", que el servidor de MLflow que expone DagsHub
+    todavía no implementa -- falla con
+    `MlflowException: Unable to find a logged_model with artifact_path model`
+    justo después de registrar el modelo (el registro en sí sí funciona).
+    Se usa en cambio `MlflowClient.create_model_version()`, la API de más
+    bajo nivel (existe desde MLflow 1.x) que apunta directo al `source` del
+    run sin depender de esa resolución nueva, y funciona igual contra
+    sqlite local, el contenedor Docker o el MLflow remoto de DagsHub.
     """
     best_name = min(results, key=lambda n: results[n]["rmse"])
     best = results[best_name]
 
     client = MlflowClient()
-    model_uri = f"runs:/{best['run_id']}/model"
-    registered = mlflow.register_model(model_uri=model_uri, name=config.MODEL_REGISTRY_NAME)
+    run_id = best["run_id"]
+    model_uri = f"runs:/{run_id}/model"
+
+    try:
+        client.create_registered_model(config.MODEL_REGISTRY_NAME)
+    except MlflowException:
+        pass  # ya existe (p.ej. de una corrida anterior o de un intento fallido previo)
+
+    registered = client.create_model_version(
+        name=config.MODEL_REGISTRY_NAME,
+        source=model_uri,
+        run_id=run_id,
+    )
     client.transition_model_version_stage(
         name=config.MODEL_REGISTRY_NAME,
         version=registered.version,
