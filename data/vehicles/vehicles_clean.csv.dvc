@@ -1,5 +1,5 @@
 outs:
-- md5: b2d016754aa65240c831824f9f965745
-  size: 348171941
+- md5: 73d8ef056c15b2721e9c12a91efcf330
+  size: 27522535
   hash: md5
   path: vehicles_clean.csv
