@@ -1,6 +1,21 @@
 .DS_Store
+.env
+.env.local
 
 mlflow.db
 mlruns/
-notebooks/mlflow.db
 data/precalc.db
+data/raw/*.csv
+__pycache__/
+*.pyc
+node_modules/
+.expo/
+.expo-shared/
+*.jks
+*.p8
+*.p12
+*.key
+*.mobileprovision
+
+scripts/.last_dataset_hash
+scripts/nightly_retrain.log

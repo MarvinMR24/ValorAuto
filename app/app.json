@@ -1,0 +1,39 @@
+{
+  "expo": {
+    "name": "ValorAuto",
+    "slug": "valorauto",
+    "version": "1.0.0",
+    "orientation": "portrait",
+    "icon": "./assets/icon.png",
+    "userInterfaceStyle": "light",
+    "ios": {
+      "supportsTablet": true,
+      "infoPlist": {
+        "NSCameraUsageDescription": "ValorAuto usa la cámara para fotografiar el auto que querés tasar.",
+        "NSPhotoLibraryUsageDescription": "ValorAuto necesita acceso a tus fotos para elegir la imagen del auto."
+      }
+    },
+    "android": {
+      "adaptiveIcon": {
+        "backgroundColor": "#E6F4FE",
+        "foregroundImage": "./assets/android-icon-foreground.png",
+        "backgroundImage": "./assets/android-icon-background.png",
+        "monochromeImage": "./assets/android-icon-monochrome.png"
+      },
+      "predictiveBackGestureEnabled": false
+    },
+    "web": {
+      "favicon": "./assets/favicon.png"
+    },
+    "scheme": "valorauto",
+    "plugins": [
+      [
+        "expo-image-picker",
+        {
+          "cameraPermission": "ValorAuto usa la cámara para fotografiar el auto que querés tasar.",
+          "photosPermission": "ValorAuto necesita acceso a tus fotos para elegir la imagen del auto."
+        }
+      ]
+    ]
+  }
+}

@@ -1,0 +1,16 @@
+# CRISP-ML(Q) — mapeo a la estructura de ValorAuto
+
+Este documento ubica cada fase de CRISP-ML(Q) (Cross-Industry Standard Process for Machine Learning with Quality assurance) dentro del repositorio, para que quede explícito qué parte del proyecto corresponde a cada etapa de la metodología. Se excluye la fase de **Despliegue**: el modelo actual es un baseline de comparación (Linear Regression / Random Forest / XGBoost) todavía no es el modelo final que irá a producción, así que desplegarlo formalmente no aplica en este punto del proyecto (ver `docs/adr/0005-mlflow-tracking-model-registry.md` y `docs/evidence/baseline-modelo.md`).
+
+| Fase CRISP-ML(Q) | Qué implica | Dónde vive en el repo |
+|---|---|---|
+| **Business & Data Understanding** | Entender el objetivo de negocio, los criterios de éxito y explorar los datos disponibles antes de modelar. | `docs/contexto/contexto_proyecto.md` (Product Goal, backlog), `docs/priorizacion_casos.md`; exploración de datos en `notebooks/01_eda.ipynb`, apoyado en `src/model/eda/` (`nulos.py`, `distribuciones.py`, `categorias.py`, `correlaciones.py`, `outliers.py`) |
+| **Data Engineering (Data Preparation)** | Limpiar, filtrar y dejar el dataset en un formato consumible y versionado. | `src/model/cleaning.py` (reglas de filtrado por precio/año/odómetro/marca), `src/model/data_loading.py`, `data/README.md`; versionamiento con DVC + DagsHub, ver [ADR-0006](docs/adr/0006-dvc-dagshub-versionamiento-datos.md) |
+| **Model Engineering** | Construir el pipeline de features y entrenar los modelos candidatos de forma reproducible. | `src/model/features.py` (preprocesamiento), `src/model/training.py` (entrenamiento + registro en MLflow), `src/model/config.py` (semilla, split, hiperparámetros — valores estáticos para reproducibilidad); orquestado por `notebooks/02_entrenamiento.ipynb` |
+| **Model Evaluation** | Medir el desempeño de cada modelo con métricas y visualizaciones, y decidir cuál pasa a producción. | `src/model/evaluation.py` (RMSE/MAE/R2, curvas de aprendizaje, residuos, importancia de features — guardadas en `src/graphics/evaluacion/` y logueadas como artifacts de MLflow), `docs/evidence/baseline-modelo.md`; tracking y Model Registry en [ADR-0005](docs/adr/0005-mlflow-tracking-model-registry.md) |
+| **Deployment** | *Excluido explícitamente en esta etapa* — el modelo vigente es un baseline de comparación, no el modelo final que se expondrá en el endpoint de producción. | — |
+| **Monitoring & Maintenance** | Vigilar que el sistema en operación (precálculo nocturno, base de lectura) no falle silenciosamente ni sirva datos corruptos o desactualizados. | `docs/risk-register.md` (R6: dataset desactualizado, R7: escritura parcial/corrupta de `precalc.db` — mitigado en este cambio con escritura atómica en `src/pipeline/precalculo.py`); orquestación en `notebooks/03_precalculo.ipynb` |
+
+## Nota sobre el estado actual
+
+El pipeline completo (`01_eda.ipynb` → `02_entrenamiento.ipynb` → `03_precalculo.ipynb`) ya se corrió de punta a punta contra el dataset real completo (2026-09-17); resultados y gráficos en `docs/evidence/baseline-modelo.md` y `src/graphics/`. Sigue pendiente que el equipo pueda reproducir esta misma corrida con `dvc pull` en vez de colocar el CSV crudo a mano, porque el remoto de DagsHub sigue siendo privado (riesgo R1 en `docs/risk-register.md`).

@@ -3,6 +3,10 @@ numpy
 scikit-learn
 xgboost
 mlflow
+matplotlib
+seaborn
 ipykernel
 dvc
 nbformat
+nbconvert
+python-dotenv

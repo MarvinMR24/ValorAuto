@@ -1,0 +1,61 @@
+# Docker Compose del pipeline de ValorAuto. Dos servicios sobre la misma imagen
+# (docker/Dockerfile), ambos con el repo montado en /app (bind mount, no una
+# copia): lo que el contenedor escribe (mlflow.db, mlruns/, data/precalc.db,
+# data/vehicles/vehicles_clean.csv, src/graphics/) queda directamente en esta
+# carpeta del proyecto, y viceversa.
+#
+#   docker compose up mlflow            # UI de MLflow en http://localhost:5001
+#   docker compose run --rm training    # reentrena los 3 modelos y regenera precalc.db
+#
+# Nota importante (ver docs/risk-register.md, R15): el mlflow.db actual fue
+# generado corriendo los notebooks en el entorno de ejecucion de Claude Code
+# (una sandbox en la nube), no en esta maquina ni en este contenedor. MLflow
+# graba la ruta absoluta de los artifacts (graficos, modelo serializado) al
+# crear cada experimento, y esa ruta es especifica de donde se creo el
+# experimento la primera vez. Eso significa que el tab "Artifacts" de MLflow
+# para las corridas ya existentes puede no cargar (los graficos como tal SI
+# estan a salvo y versionados en git, en src/graphics/, asi que no se perdio
+# nada visible; solo falla la copia interna que MLflow guarda del artifact).
+# Los numeros de RMSE/MAE/R2 (las metricas, en las tablas SQL de mlflow.db) se
+# ven bien igual, vengan de donde vengan. Para que TODO (metricas + artifacts +
+# el modelo cargable via Model Registry) quede portable de aqui en adelante,
+# basta correr una vez "docker compose run --rm training": al recrearse desde
+# dentro del contenedor, la ruta que MLflow graba pasa a ser siempre /app/...,
+# la misma sin importar en que maquina se levante este mismo docker-compose.
+services:
+  mlflow:
+    build:
+      context: .
+      dockerfile: docker/Dockerfile
+    container_name: valorauto-mlflow
+    working_dir: /app
+    volumes:
+      - .:/app
+    ports:
+      # 5001 del lado del Mac -> 5000 dentro del contenedor. No se deja
+      # "5000:5000": en macOS el puerto 5000 lo suele tener tomado
+      # "AirPlay Receiver" (Handoff), lo que hace fallar el "docker compose up"
+      # con "address already in use" sin que el problema sea Docker.
+      - "5001:5000"
+    command: >
+      mlflow server
+      --backend-store-uri sqlite:///mlflow.db
+      --default-artifact-root ./mlruns
+      --host 0.0.0.0
+      --port 5000
+    restart: unless-stopped
+
+  training:
+    build:
+      context: .
+      dockerfile: docker/Dockerfile
+    working_dir: /app
+    volumes:
+      - .:/app
+    profiles: ["tools"]
+    command: >
+      sh -c "
+        python3 -m nbconvert --to notebook --execute --inplace --ExecutePreprocessor.cwd=/app --ExecutePreprocessor.timeout=600 notebooks/01_eda.ipynb &&
+        python3 -m nbconvert --to notebook --execute --inplace --ExecutePreprocessor.cwd=/app --ExecutePreprocessor.timeout=600 notebooks/02_entrenamiento.ipynb &&
+        python3 -m nbconvert --to notebook --execute --inplace --ExecutePreprocessor.cwd=/app --ExecutePreprocessor.timeout=600 notebooks/03_precalculo.ipynb
+      "
