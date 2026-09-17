@@ -1,0 +1,27 @@
+# ADR-0005 — MLflow para tracking de experimentos y Model Registry
+
+**Estado:** Aceptada
+**Fecha:** Sprint 2 (ejecutada en `src/model/train_baseline.ipynb`)
+**Relacionado:** `src/model/training.py`, `src/model/config.py`, `src/pipeline/precalculo.py`, `notebooks/02_entrenamiento.ipynb`, `notebooks/03_precalculo.ipynb`, `docs/evidence/baseline-modelo.md`, [ADR-0008](0008-separacion-componentes-notebooks-delgados.md)
+
+## Contexto
+
+El requisito de MLOps del curso pide registrar experimentos (métricas de error, versión de datos, versión de modelo) y tener una forma reproducible de promover el mejor modelo a producción, para que el pipeline nocturno (`src/pipeline`) siempre use la versión correcta.
+
+## Decisión
+
+Se usa **MLflow** (tracking + Model Registry) con backend local en SQLite (`mlflow.db`, compartido entre `src/model` y `src/pipeline` vía la constante `MLFLOW_TRACKING_URI` de `src/model/config.py`, calculada a partir de `REPO_ROOT = Path(__file__).resolve().parents[2]` — no depende de una ruta relativa como `../../mlflow.db`, que se rompía si el notebook cambiaba de carpeta, ver [ADR-0008](0008-separacion-componentes-notebooks-delgados.md)). Cada corrida de entrenamiento registra RMSE, MAE y R2 por modelo (`src/model/training.py::train_and_log`), y el modelo con menor RMSE se promueve a la etiqueta "Production" (`training.py::promote_best_model`, orquestado desde `notebooks/02_entrenamiento.ipynb`).
+
+## Alternativas consideradas
+
+- **Sin herramienta de tracking (solo imprimir métricas y guardar el modelo en un `.pkl`):** se descartó porque no deja un registro verificable de versiones ni un mecanismo de promoción a producción, que es justo lo que la rúbrica de EC01 pide poder mostrar en vivo ("registro de experimentos").
+- **Weights & Biases (W&B):** herramienta equivalente, pero requiere cuenta en la nube y agrega una dependencia externa más; se descartó por simplicidad, ya que MLflow corre localmente sin servicio adicional y el equipo ya lo tenía en el stack decidido desde `docs/clickup_estructura.md`.
+
+## Consecuencias
+
+- `src/pipeline/precalculo.py::cargar_modelo_production()` siempre carga el modelo vía `models:/ValorAuto_Model/Production`, nunca un archivo suelto, así que promover un modelo nuevo a producción es un paso explícito y auditable en MLflow, no un reemplazo de archivo silencioso.
+- El `mlflow.db` local no es apto para un equipo trabajando en paralelo desde máquinas distintas (cada quien tiene su propio historial de experimentos local). Riesgo aceptado para el MVP; si se necesita un tracking compartido, MLflow se puede apuntar a un servidor remoto sin cambiar el código de los notebooks (solo la tracking URI).
+- `mlflow.db` y `mlruns/` están en `.gitignore`: no se versiona el histórico de experimentos en git, solo el modelo final registrado y sus métricas documentadas en `docs/evidence/baseline-modelo.md`.
+- **Bug real encontrado al ejecutar el pipeline por primera vez contra datos reales (2026-09-17):** `MlflowClient.transition_model_version_stage()` tiene `archive_existing_versions=False` por defecto, así que reentrenar más de una vez sin pasar ese flag explícitamente deja varias versiones marcadas "Production" al mismo tiempo — justo la ambigüedad que `cargar_modelo_production()` no puede resolver, porque pide "la" versión Production asumiendo que solo hay una. Se corrigió pasando `archive_existing_versions=True` en `training.py::promote_best_model()`; verificado que después de reentrenar, `MlflowClient.search_model_versions()` reporta exactamente una versión en "Production".
+- **Trazabilidad de dataset agregada (2026-09-17):** las corridas no dejaban registrado *qué dataset* se usó para entrenar/evaluar, solo las métricas — un hueco real de cara a la rúbrica EC01 (sección "Datos"), que pide poder mostrar en vivo de qué datos salió cada resultado, no solo afirmarlo en un documento. `training.py::train_and_log()` ahora llama `mlflow.log_input()` con `mlflow.data.from_pandas()` para train y test (fuente, filas, columnas, digest — visible en la pestaña "Datasets" de cada corrida), y agrega tags con la lista de features, la semilla y el commit de git (`git rev-parse HEAD`) usados en esa corrida.
+- **Migración a MLflow remoto vía DagsHub (2026-09-17), resuelve R15:** hasta ahora `mlflow.db` se generaba en el entorno donde corría el notebook, y MLflow graba una ruta absoluta de archivo (`artifact_location`) al crear cada experimento — esa ruta solo existe en la máquina donde se creó, así que los artifacts (gráficos, modelo serializado) no cargaban desde otra máquina (riesgo R15, ver `docs/risk-register.md`). `src/model/config.py` ahora lee `MLFLOW_TRACKING_URI` desde una variable de entorno (`.env`, ver `.env.example`), con fallback al sqlite local si no está configurada. Si se apunta al servidor MLflow que expone automáticamente cada repo de DagsHub (`https://dagshub.com/SNARF3/ValorAutoData.mlflow`), el almacenamiento de artifacts pasa a ser *proxied* (`mlflow-artifacts:/<uuid>`, servido por DagsHub) en vez de una ruta de archivo local — el problema deja de existir estructuralmente, no es un parche. Ningún otro call site (`training.py`, `src/pipeline/precalculo.py`, `src/pipeline/config.py`) cambió: todos ya consumían `config.MLFLOW_TRACKING_URI`, así que heredan el comportamiento nuevo automáticamente.
