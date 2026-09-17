@@ -167,7 +167,7 @@ Notas de planificación: Sprint 0 se extendió a 2 semanas (más margen para set
 ## Sprint 4 — Visión (Gemini) + Backend Express (Node.js) (26 oct–8 nov)
 
 ### 16. Configurar API de Gemini y prompt de identificación de vehículo
-- **Historia de usuario:** Como desarrollador, quiero configurar la API de Gemini (API key + librería google-generativeai) para poder invocarla desde el backend.
+- **Historia de usuario:** Como desarrollador, quiero configurar la API de Gemini (API key + SDK `@google/genai` para Node.js) para poder invocarla desde el backend.
 - **Criterio de aceptación:** Llave de Google AI Studio configurada como variable de entorno (no hardcodeada); librería instalada; llamada de prueba exitosa a gemini-1.5-flash.
 - **Prioridad:** Urgente · **Asignado:** Samuel · **Vence:** 29 oct
 - **Riesgo:** Exponer la API key en el repo (hardcodeada o en un commit) es un riesgo de seguridad e integridad.
@@ -245,7 +245,7 @@ Sprint 6: (todo lo anterior) → Integración, despliegue, demo
 - **Datos:** Craigslist Vehicles Dataset (Kaggle), Cars.com, US Used Cars
 - **Modelo:** Scikit-Learn (baseline regresión lineal), XGBoost
 - **MLOps:** MLflow (tracking de experimentos, registro/versionado de modelos)
-- **Visión:** Google Gemini (gemini-1.5-flash) vía `google-generativeai`
+- **Visión:** Google Gemini (gemini-1.5-flash) vía el SDK de Node.js `@google/genai`
 - **Backend:** Node.js + Express
 - **Almacenamiento de lectura rápida:** SQLite o Redis
 - **Automatización:** cron / Apache Airflow (job nocturno 3:00 AM)
