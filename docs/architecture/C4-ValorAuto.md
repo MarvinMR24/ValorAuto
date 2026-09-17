@@ -2,7 +2,7 @@
 
 Diagramas C4 (Contexto y Contenedores) del Tasador de Autos con IA, alineados al stack decidido en Sprint 0 (ver ADRs en [`docs/adr/`](../adr/)): **Node.js/Express** para el backend, **React Native + Expo** para la app móvil, **MLflow** para tracking/registro de modelos y **DVC + DagsHub** para versionamiento de datos.
 
-Fuente editable en draw.io: [`valorauto-c4-container.drawio`](valorauto-c4-container.drawio) (importar en [app.diagrams.net](https://app.diagrams.net) con "File → Open From → Device").
+Fuente editable en draw.io: [`valorauto-c4-container.xml`](valorauto-c4-container.xml) (importar en [app.diagrams.net](https://app.diagrams.net) con "File → Open From → Device").
 
 ## Nivel 1 — Contexto del sistema
 

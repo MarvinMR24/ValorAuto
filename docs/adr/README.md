@@ -1,6 +1,6 @@
 # Architecture Decision Records — ValorAuto
 
-Registro de decisiones técnicas del proyecto, con las alternativas descartadas y por qué (regla de EC01: "toda técnica seleccionada debe justificarse frente a otras alternativas descartadas").
+Registro de decisiones técnicas del proyecto, con las alternativas descartadas y por qué se descartaron.
 
 | ADR | Decisión | Estado |
 |---|---|---|
