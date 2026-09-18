@@ -1,5 +1,34 @@
 <mxfile host="app.diagrams.net">
-  <diagram id="c4-container-valorauto" name="ValorAuto - C4 Contenedores">
+  <diagram id="c4-context-valorauto" name="Nivel 1 - Contexto">
+    <mxGraphModel dx="1200" dy="800" grid="1" gridSize="10" guides="1" tooltips="1" connect="1" arrows="1" fold="1" page="1" pageScale="1" pageWidth="1100" pageHeight="650" math="0" shadow="0">
+      <root>
+        <mxCell id="0" />
+        <mxCell id="1" parent="0" />
+        <mxCell id="ctx_usuario" value="Usuario&#10;[Persona]&#10;&#10;Quiere tasar un auto usado (venderlo o comprarlo)" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#08427B;strokeColor=#073B6F;fontColor=#FFFFFF;fontSize=11;align=center;verticalAlign=middle;" vertex="1" parent="1">
+          <mxGeometry x="60" y="240" width="220" height="120" as="geometry" />
+        </mxCell>
+        <mxCell id="ctx_valorauto" value="ValorAuto&#10;[Sistema de software]&#10;&#10;Tasador de autos por foto + kilometraje" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#1168BD;strokeColor=#0B4884;fontColor=#FFFFFF;fontSize=12;fontStyle=1;align=center;verticalAlign=middle;" vertex="1" parent="1">
+          <mxGeometry x="420" y="240" width="240" height="120" as="geometry" />
+        </mxCell>
+        <mxCell id="ctx_gemini" value="Google Gemini API&#10;[Sistema externo]&#10;&#10;Identifica el vehiculo en la foto" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#999999;strokeColor=#6B6B6B;fontColor=#FFFFFF;fontSize=11;align=center;verticalAlign=middle;" vertex="1" parent="1">
+          <mxGeometry x="800" y="100" width="240" height="110" as="geometry" />
+        </mxCell>
+        <mxCell id="ctx_dagshub" value="DVC + DagsHub&#10;[Sistema externo]&#10;&#10;Versiona el dataset de entrenamiento" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#999999;strokeColor=#6B6B6B;fontColor=#FFFFFF;fontSize=11;align=center;verticalAlign=middle;" vertex="1" parent="1">
+          <mxGeometry x="800" y="380" width="240" height="110" as="geometry" />
+        </mxCell>
+        <mxCell id="ctx_e1" value="Sube foto + kilometraje,&#10;recibe precio estimado" style="edgeStyle=orthogonalEdgeStyle;rounded=0;html=1;fontSize=10;endArrow=block;elbow=vertical;" edge="1" parent="1" source="ctx_usuario" target="ctx_valorauto">
+          <mxGeometry relative="1" as="geometry" />
+        </mxCell>
+        <mxCell id="ctx_e2" value="Envia foto, recibe&#10;marca/modelo/anio" style="edgeStyle=orthogonalEdgeStyle;rounded=0;html=1;fontSize=10;endArrow=block;elbow=vertical;" edge="1" parent="1" source="ctx_valorauto" target="ctx_gemini">
+          <mxGeometry relative="1" as="geometry" />
+        </mxCell>
+        <mxCell id="ctx_e3" value="dvc pull / dvc push&#10;del dataset versionado" style="edgeStyle=orthogonalEdgeStyle;rounded=0;html=1;fontSize=10;endArrow=block;elbow=vertical;" edge="1" parent="1" source="ctx_valorauto" target="ctx_dagshub">
+          <mxGeometry relative="1" as="geometry" />
+        </mxCell>
+      </root>
+    </mxGraphModel>
+  </diagram>
+  <diagram id="c4-container-valorauto" name="Nivel 2 - Contenedores">
     <mxGraphModel dx="1400" dy="900" grid="1" gridSize="10" guides="1" tooltips="1" connect="1" arrows="1" fold="1" page="1" pageScale="1" pageWidth="1650" pageHeight="1100" math="0" shadow="0">
       <root>
         <mxCell id="0" />
@@ -62,6 +91,92 @@
           <mxGeometry relative="1" as="geometry" />
         </mxCell>
         <mxCell id="e11" value="D. Escribe tabla de precios precalculada" style="edgeStyle=orthogonalEdgeStyle;rounded=0;html=1;fontSize=10;endArrow=block;elbow=vertical;dashed=1;" edge="1" parent="1" source="pipeline_ml" target="sqlite_precalc">
+          <mxGeometry relative="1" as="geometry" />
+        </mxCell>
+      </root>
+    </mxGraphModel>
+  </diagram>
+  <diagram id="c4-component-pipeline-ml" name="Nivel 3 - Componentes (Pipeline de ML)">
+    <mxGraphModel dx="1400" dy="900" grid="1" gridSize="10" guides="1" tooltips="1" connect="1" arrows="1" fold="1" page="1" pageScale="1" pageWidth="1400" pageHeight="900" math="0" shadow="0">
+      <root>
+        <mxCell id="0" />
+        <mxCell id="1" parent="0" />
+        <mxCell id="grp_eda" value="01_eda.ipynb  -  limpieza y EDA" style="rounded=1;whiteSpace=wrap;html=1;fillColor=none;strokeColor=#0B4884;dashed=1;verticalAlign=top;fontSize=12;fontStyle=1;fontColor=#0B4884;spacingTop=6;" vertex="1" parent="1">
+          <mxGeometry x="40" y="60" width="360" height="280" as="geometry" />
+        </mxCell>
+        <mxCell id="comp_data_loading" value="data_loading.py&#10;[Componente]&#10;&#10;load_raw(), load_clean()" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#1168BD;strokeColor=#0B4884;fontColor=#FFFFFF;fontSize=11;align=center;verticalAlign=middle;" vertex="1" parent="grp_eda">
+          <mxGeometry x="20" y="40" width="320" height="60" as="geometry" />
+        </mxCell>
+        <mxCell id="comp_cleaning" value="cleaning.py&#10;[Componente]&#10;&#10;clean_dataset(), save_clean() - reglas de filtrado" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#1168BD;strokeColor=#0B4884;fontColor=#FFFFFF;fontSize=11;align=center;verticalAlign=middle;" vertex="1" parent="grp_eda">
+          <mxGeometry x="20" y="120" width="320" height="60" as="geometry" />
+        </mxCell>
+        <mxCell id="comp_eda" value="eda/ (5 modulos)&#10;[Componente]&#10;&#10;nulos, distribuciones, categorias, correlaciones, outliers" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#1168BD;strokeColor=#0B4884;fontColor=#FFFFFF;fontSize=11;align=center;verticalAlign=middle;" vertex="1" parent="grp_eda">
+          <mxGeometry x="20" y="200" width="320" height="60" as="geometry" />
+        </mxCell>
+        <mxCell id="grp_train" value="02_entrenamiento.ipynb  -  features y modelo" style="rounded=1;whiteSpace=wrap;html=1;fillColor=none;strokeColor=#0B4884;dashed=1;verticalAlign=top;fontSize=12;fontStyle=1;fontColor=#0B4884;spacingTop=6;" vertex="1" parent="1">
+          <mxGeometry x="480" y="60" width="360" height="280" as="geometry" />
+        </mxCell>
+        <mxCell id="comp_features" value="features.py&#10;[Componente]&#10;&#10;build_preprocessor(), split_data()" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#1168BD;strokeColor=#0B4884;fontColor=#FFFFFF;fontSize=11;align=center;verticalAlign=middle;" vertex="1" parent="grp_train">
+          <mxGeometry x="20" y="40" width="320" height="60" as="geometry" />
+        </mxCell>
+        <mxCell id="comp_training" value="training.py&#10;[Componente]&#10;&#10;train_and_log(), promote_best_model()" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#1168BD;strokeColor=#0B4884;fontColor=#FFFFFF;fontSize=11;align=center;verticalAlign=middle;" vertex="1" parent="grp_train">
+          <mxGeometry x="20" y="120" width="320" height="60" as="geometry" />
+        </mxCell>
+        <mxCell id="comp_evaluation" value="evaluation.py&#10;[Componente]&#10;&#10;metricas (RMSE/MAE/R2), curvas, residuos, graficos" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#1168BD;strokeColor=#0B4884;fontColor=#FFFFFF;fontSize=11;align=center;verticalAlign=middle;" vertex="1" parent="grp_train">
+          <mxGeometry x="20" y="200" width="320" height="60" as="geometry" />
+        </mxCell>
+        <mxCell id="grp_precalc" value="03_precalculo.ipynb  -  precalculo nocturno" style="rounded=1;whiteSpace=wrap;html=1;fillColor=none;strokeColor=#0B4884;dashed=1;verticalAlign=top;fontSize=12;fontStyle=1;fontColor=#0B4884;spacingTop=6;" vertex="1" parent="1">
+          <mxGeometry x="920" y="60" width="360" height="200" as="geometry" />
+        </mxCell>
+        <mxCell id="comp_combinations" value="combinations.py&#10;[Componente]&#10;&#10;genera combinaciones marca/modelo/anio/rango_km" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#1168BD;strokeColor=#0B4884;fontColor=#FFFFFF;fontSize=11;align=center;verticalAlign=middle;" vertex="1" parent="grp_precalc">
+          <mxGeometry x="20" y="40" width="320" height="60" as="geometry" />
+        </mxCell>
+        <mxCell id="comp_precalculo" value="precalculo.py&#10;[Componente]&#10;&#10;carga modelo Production, calcula precios, escritura atomica" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#1168BD;strokeColor=#0B4884;fontColor=#FFFFFF;fontSize=11;align=center;verticalAlign=middle;" vertex="1" parent="grp_precalc">
+          <mxGeometry x="20" y="120" width="320" height="60" as="geometry" />
+        </mxCell>
+        <mxCell id="comp_config" value="config.py (model y pipeline)&#10;[Componente compartido]&#10;&#10;REPO_ROOT, RANDOM_SEED, TEST_SIZE, hiperparametros, rutas" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#5A7FA6;strokeColor=#0B4884;fontColor=#FFFFFF;fontSize=11;align=center;verticalAlign=middle;dashed=1;" vertex="1" parent="1">
+          <mxGeometry x="480" y="380" width="360" height="60" as="geometry" />
+        </mxCell>
+        <mxCell id="comp_dagshub" value="DVC + DagsHub&#10;[Sistema externo]" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#999999;strokeColor=#6B6B6B;fontColor=#FFFFFF;fontSize=11;align=center;verticalAlign=middle;" vertex="1" parent="1">
+          <mxGeometry x="40" y="500" width="220" height="90" as="geometry" />
+        </mxCell>
+        <mxCell id="comp_mlflow" value="MLflow Tracking/Registry&#10;[Contenedor: SQLite - mlflow.db]" style="shape=cylinder3;whiteSpace=wrap;html=1;fillColor=#1168BD;strokeColor=#0B4884;fontColor=#FFFFFF;fontSize=11;boundedLbl=1;" vertex="1" parent="1">
+          <mxGeometry x="560" y="510" width="220" height="100" as="geometry" />
+        </mxCell>
+        <mxCell id="comp_sqlite" value="Base de Precalculo&#10;[Contenedor: SQLite - precalc.db]" style="shape=cylinder3;whiteSpace=wrap;html=1;fillColor=#1168BD;strokeColor=#0B4884;fontColor=#FFFFFF;fontSize=11;boundedLbl=1;" vertex="1" parent="1">
+          <mxGeometry x="1040" y="500" width="220" height="90" as="geometry" />
+        </mxCell>
+        <mxCell id="ce1" value="dvc pull" style="edgeStyle=orthogonalEdgeStyle;rounded=0;html=1;fontSize=10;endArrow=block;elbow=vertical;dashed=1;" edge="1" parent="1" source="comp_data_loading" target="comp_dagshub">
+          <mxGeometry relative="1" as="geometry" />
+        </mxCell>
+        <mxCell id="ce2" value="vehicles_clean.csv" style="edgeStyle=orthogonalEdgeStyle;rounded=0;html=1;fontSize=10;endArrow=block;elbow=vertical;" edge="1" parent="1" source="comp_cleaning" target="comp_features">
+          <mxGeometry relative="1" as="geometry" />
+        </mxCell>
+        <mxCell id="ce3" value="X, y (train/test)" style="edgeStyle=orthogonalEdgeStyle;rounded=0;html=1;fontSize=10;endArrow=block;elbow=vertical;" edge="1" parent="1" source="comp_features" target="comp_training">
+          <mxGeometry relative="1" as="geometry" />
+        </mxCell>
+        <mxCell id="ce4" value="genera metricas y graficos" style="edgeStyle=orthogonalEdgeStyle;rounded=0;html=1;fontSize=10;endArrow=block;elbow=vertical;" edge="1" parent="1" source="comp_training" target="comp_evaluation">
+          <mxGeometry relative="1" as="geometry" />
+        </mxCell>
+        <mxCell id="ce5" value="registra runs, promueve a Production" style="edgeStyle=orthogonalEdgeStyle;rounded=0;html=1;fontSize=10;endArrow=block;elbow=vertical;" edge="1" parent="1" source="comp_training" target="comp_mlflow">
+          <mxGeometry relative="1" as="geometry" />
+        </mxCell>
+        <mxCell id="ce6" value="carga modelo stage=Production" style="edgeStyle=orthogonalEdgeStyle;rounded=0;html=1;fontSize=10;endArrow=block;elbow=vertical;dashed=1;" edge="1" parent="1" source="comp_mlflow" target="comp_precalculo">
+          <mxGeometry relative="1" as="geometry" />
+        </mxCell>
+        <mxCell id="ce7" value="combinaciones generadas" style="edgeStyle=orthogonalEdgeStyle;rounded=0;html=1;fontSize=10;endArrow=block;elbow=vertical;" edge="1" parent="1" source="comp_combinations" target="comp_precalculo">
+          <mxGeometry relative="1" as="geometry" />
+        </mxCell>
+        <mxCell id="ce8" value="escribe tabla de precios" style="edgeStyle=orthogonalEdgeStyle;rounded=0;html=1;fontSize=10;endArrow=block;elbow=vertical;" edge="1" parent="1" source="comp_precalculo" target="comp_sqlite">
+          <mxGeometry relative="1" as="geometry" />
+        </mxCell>
+        <mxCell id="ce9" value="valores estaticos" style="edgeStyle=orthogonalEdgeStyle;rounded=0;html=1;fontSize=10;endArrow=block;elbow=vertical;dashed=1;" edge="1" parent="1" source="comp_config" target="grp_eda">
+          <mxGeometry relative="1" as="geometry" />
+        </mxCell>
+        <mxCell id="ce10" value="valores estaticos" style="edgeStyle=orthogonalEdgeStyle;rounded=0;html=1;fontSize=10;endArrow=block;elbow=vertical;dashed=1;" edge="1" parent="1" source="comp_config" target="grp_train">
+          <mxGeometry relative="1" as="geometry" />
+        </mxCell>
+        <mxCell id="ce11" value="valores estaticos" style="edgeStyle=orthogonalEdgeStyle;rounded=0;html=1;fontSize=10;endArrow=block;elbow=vertical;dashed=1;" edge="1" parent="1" source="comp_config" target="grp_precalc">
           <mxGeometry relative="1" as="geometry" />
         </mxCell>
       </root>
