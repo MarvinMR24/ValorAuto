@@ -6,6 +6,26 @@ Tasador de Autos con IA — sube una foto y el kilometraje de un auto y obtén s
 **Caso elegido:** ver [`docs/priorizacion_casos.md`](docs/priorizacion_casos.md)
 **Estado actual:** Sprint 1 (Datos) en curso. Línea base del modelo ya entrenada y registrada (ver [Evidencia de línea base](docs/evidence/baseline-modelo.md)).
 
+## Sobre el proyecto
+
+**Problema:** tasar un auto usado en Bolivia hoy depende de buscar manualmente en catálogos/clasificados, sin una referencia rápida y confiable de precio.
+
+**Product Goal:** para un usuario que quiere vender o comprar un auto usado en Bolivia, el Tasador de Autos IA es una app móvil que identifica el vehículo a partir de una foto (marca, modelo, año) y, junto con el kilometraje ingresado, entrega un precio de mercado precalculado cada madrugada — sin cómputo de ML en el momento de la consulta. Detalle completo del objetivo, alcance y backlog en [`docs/contexto/contexto_proyecto.md`](docs/contexto/contexto_proyecto.md).
+
+**Equipo:** Marvin Mollo Ramírez, Leonardo Delgado, Samuel Villca — Taller de Sistemas Inteligentes (SIS-352), UCB.
+
+**Resultados actuales de la línea base** (corrida real de punta a punta, `docs/evidence/baseline-modelo.md`):
+
+| Modelo | RMSE | MAE | R² |
+|---|---|---|---|
+| Linear Regression (baseline) | 8107.91 | 5587.19 | 0.6716 |
+| Random Forest | 7048.09 | 4566.73 | 0.7518 |
+| **XGBoost (Production)** | **6085.26** | **3777.90** | **0.8150** |
+
+Entrenado sobre 352,005 filas limpias del Craigslist Vehicles Dataset. La tabla de precios precalculada tiene 78,915 combinaciones (marca/modelo/año/rango de km), con una latencia de consulta de ~0.24ms promedio.
+
+**Metodología:** el proyecto sigue CRISP-ML(Q); ver el mapeo completo de fases a la estructura del repo en [`docs/crisp-mlq.md`](docs/crisp-mlq.md).
+
 ## Stack decidido
 
 | Capa | Tecnología | ADR |
@@ -18,6 +38,28 @@ Tasador de Autos con IA — sube una foto y el kilometraje de un auto y obtén s
 | Precálculo (lectura rápida) | SQLite | [ADR-0007](docs/adr/0007-sqlite-lectura-rapida.md) |
 | Orquestación nocturna | cron / Airflow | [ADR-0003](docs/adr/0003-precalculo-nocturno-vs-tiempo-real.md) |
 | Versionamiento de datos | DVC + DagsHub | [ADR-0006](docs/adr/0006-dvc-dagshub-versionamiento-datos.md) |
+
+## Arquitectura
+
+Vista simplificada del sistema (diagramas C4 completos en [`docs/architecture/C4-ValorAuto.md`](docs/architecture/C4-ValorAuto.md)):
+
+```mermaid
+flowchart LR
+    Usuario(["Usuario"]) -->|"foto + km"| App["App móvil\nReact Native + Expo"]
+    App -->|"POST /tasacion"| API["Backend API\nNode.js + Express"]
+    API -->|foto| Gemini[["Google Gemini\n(API externa)"]]
+    Gemini -->|"marca/modelo/año"| API
+    API -->|consulta| DB[("Base de precálculo\nSQLite")]
+    DB -->|precio| API
+    API -->|"precio estimado"| App
+
+    Pipeline["Pipeline de ML\nsrc/model + src/pipeline"] -->|"entrena y registra"| MLflow[("MLflow\nModel Registry")]
+    MLflow -->|"modelo Production"| Pipeline
+    Pipeline -->|"escribe tabla de precios"| DB
+    DagsHub[["DVC + DagsHub"]] -.->|"dataset versionado"| Pipeline
+```
+
+El flujo de arriba (tasación en vivo) corre en milisegundos porque solo lee de la base de precálculo; el flujo de abajo (pipeline nocturno) es el que reentrena el modelo y regenera esa tabla.
 
 ## Estructura
 
@@ -46,33 +88,26 @@ Gestión de tareas en ClickUp: workspace **Tio Sam S.R.L**, carpeta **Tasador de
 
 ## Cómo reproducir el avance actual
 
-Requiere Python 3.10+, Node.js 18+ y una cuenta con acceso al remoto de DagsHub del proyecto (ver nota de acceso más abajo).
+Requiere Docker y una cuenta con acceso al remoto de DagsHub del proyecto (ver nota de acceso más abajo).
 
 ```bash
 git clone https://github.com/SNARF3/ValorAuto.git
 cd ValorAuto
 
-# 1. Dataset (versionado con DVC, ver docs/adr/0006)
+# Dataset (versionado con DVC, ver docs/adr/0006)
 pip install dvc
 dvc pull data/vehicles/vehicles_clean.csv.dvc
 
-# 2. Pipeline de modelo: EDA -> entrenamiento -> precálculo (notebooks delgados, ver ADR-0008)
-pip install -r requirements.txt
-jupyter notebook notebooks/01_eda.ipynb            # limpieza + EDA, guarda imágenes en src/graphics/eda/
-jupyter notebook notebooks/02_entrenamiento.ipynb  # entrena 3 modelos, registra en MLflow, promueve el mejor a Production
-# ver métricas y corridas en vivo:
-mlflow ui --backend-store-uri sqlite:///mlflow.db   # http://localhost:5000
+# UI de MLflow (http://localhost:5001)
+docker compose up mlflow
 
-# 3. Precálculo nocturno (usa el modelo "Production" registrado en el paso anterior)
-jupyter notebook notebooks/03_precalculo.ipynb
-
-# 4. App móvil (esqueleto, ver app/README.md)
-cd app
-npm install
-npx expo start
+# Reentrena los 3 modelos (EDA -> entrenamiento -> precálculo) y regenera data/precalc.db
+docker compose run --rm training
 ```
 
-**Nota de acceso a datos:** el remoto de DagsHub es `https://dagshub.com/SNARF3/ValorAutoData` (migrado desde `LEONGO037/ValorAuto`, ver [ADR-0006](docs/adr/0006-dvc-dagshub-versionamiento-datos.md)). Si `dvc pull`/`dvc push` fallan con error de autenticación, configurá tu token de DagsHub localmente (nunca se commitea):
+Ambos servicios corren sobre la misma imagen (`docker/Dockerfile`) con el repo montado como volumen: lo que el contenedor escribe (`mlflow.db`, `mlruns/`, `data/precalc.db`, `src/graphics/`) queda directamente en esta carpeta. Detalle completo en [`src/README.md`](src/README.md#alternativa-mlflow-y-el-reentrenamiento-en-docker).
+
+**Nota de acceso a datos:** el remoto de DagsHub es `https://dagshub.com/SNARF3/ValorAutoData` (ver [ADR-0006](docs/adr/0006-dvc-dagshub-versionamiento-datos.md)). Si `dvc pull`/`dvc push` fallan con error de autenticación, configurá tu token de DagsHub localmente (nunca se commitea):
 
 ```bash
 dvc remote modify origin --local auth basic
@@ -80,8 +115,6 @@ dvc remote modify origin --local user <tu-usuario-dagshub>
 dvc remote modify origin --local password <tu-token-dagshub>
 ```
 
-**MLflow remoto (opcional, resuelve R15):** por defecto MLflow usa el sqlite local (`mlflow.db`) y todo funciona igual que antes. Para que las corridas (con sus artifacts) queden en el MLflow hospedado en DagsHub en vez de en tu máquina, copiá `.env.example` a `.env` en la raíz y completá tu usuario/token de DagsHub — ver [ADR-0005](docs/adr/0005-mlflow-tracking-model-registry.md).
-
-**Alternativa sin instalar nada:** `docker compose up mlflow` levanta la UI de MLflow en un contenedor (`http://localhost:5001`, no 5000 — ver nota en `docker-compose.yml`) y `docker compose run --rm training` reentrena los 3 modelos y regenera `data/precalc.db`, sin instalar MLflow ni las demás dependencias en tu máquina — ver [`src/README.md`](src/README.md#alternativa-mlflow-y-el-reentrenamiento-en-docker) y el riesgo R15 en `docs/risk-register.md`.
+**MLflow remoto (opcional, resuelve R15):** por defecto MLflow usa el sqlite local (`mlflow.db`) dentro del contenedor y todo funciona igual. Para que las corridas (con sus artifacts) queden en el MLflow hospedado en DagsHub, copiá `.env.example` a `.env` en la raíz y completá tu usuario/token de DagsHub — ver [ADR-0005](docs/adr/0005-mlflow-tracking-model-registry.md).
 
 `src/api` (Node.js/Express) todavía no tiene código propio más allá del scaffold (`src/api/.gitkeep`) — corresponde a Sprint 4 del [backlog](docs/contexto/contexto_proyecto.md).
