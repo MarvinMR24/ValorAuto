@@ -2,7 +2,7 @@
 
 Diagramas C4 (Contexto y Contenedores) del Tasador de Autos con IA, alineados al stack decidido en Sprint 0 (ver ADRs en [`docs/adr/`](../adr/)): **Node.js/Express** para el backend, **React Native + Expo** para la app móvil, **MLflow** para tracking/registro de modelos y **DVC + DagsHub** para versionamiento de datos.
 
-Fuente editable en draw.io: [`valorauto-c4-container.xml`](valorauto-c4-container.xml) (importar en [app.diagrams.net](https://app.diagrams.net) con "File → Open From → Device").
+Fuente editable en draw.io: [`valorauto-c4-container.xml`](valorauto-c4-container.xml) (importar en [app.diagrams.net](https://app.diagrams.net) con "File → Open From → Device"). El archivo trae los 3 niveles como pestañas separadas: "Nivel 1 - Contexto", "Nivel 2 - Contenedores" y "Nivel 3 - Componentes (Pipeline de ML)".
 
 ## Nivel 1 — Contexto del sistema
 
@@ -67,6 +67,60 @@ flowchart TD
     style Mlflow fill:#1168BD,color:#fff,stroke:#0B4884
     style Cron fill:#2E7D32,color:#fff,stroke:#1B5E20
     style Gemini fill:#999999,color:#fff,stroke:#6B6B6B
+    style DagsHub fill:#999999,color:#fff,stroke:#6B6B6B
+```
+
+## Nivel 3 — Componentes (Pipeline de ML)
+
+El único contenedor con código propio ya construido es el Pipeline de ML, así que es el que se abre a nivel de componente (los demás — App Móvil, API Backend — siguen siendo scaffold, ver `docs/uso-ia.md` y el backlog). Cada notebook delgado (`notebooks/`) orquesta un grupo de módulos de `src/`; `config.py` centraliza los valores estáticos (semilla, split, hiperparámetros, rutas) que usan los tres grupos.
+
+```mermaid
+flowchart TD
+    subgraph EDA["01_eda.ipynb — limpieza y EDA"]
+        DataLoading["data_loading.py<br/>[Componente]<br/>load_raw(), load_clean()"]
+        Cleaning["cleaning.py<br/>[Componente]<br/>clean_dataset(), save_clean()"]
+        EdaMods["eda/ (5 módulos)<br/>[Componente]<br/>nulos, distribuciones, categorías,<br/>correlaciones, outliers"]
+    end
+
+    subgraph TRAIN["02_entrenamiento.ipynb — features y modelo"]
+        Features["features.py<br/>[Componente]<br/>build_preprocessor(), split_data()"]
+        Training["training.py<br/>[Componente]<br/>train_and_log(), promote_best_model()"]
+        Evaluation["evaluation.py<br/>[Componente]<br/>RMSE/MAE/R², curvas, residuos"]
+    end
+
+    subgraph PRECALC["03_precalculo.ipynb — precálculo nocturno"]
+        Combinations["combinations.py<br/>[Componente]<br/>genera combinaciones marca/modelo/año/km"]
+        Precalculo["precalculo.py<br/>[Componente]<br/>carga modelo Production, calcula precios,<br/>escritura atómica"]
+    end
+
+    Config[("config.py<br/>[Componente compartido]<br/>REPO_ROOT, seed, split, hiperparámetros")]
+    DagsHub[["DVC + DagsHub<br/>[Sistema externo]"]]
+    Mlflow[("MLflow Tracking/Registry<br/>[SQLite - mlflow.db]")]
+    Sqlite[("Base de Precálculo<br/>[SQLite - precalc.db]")]
+
+    DataLoading -. "dvc pull" .-> DagsHub
+    Cleaning -- "vehicles_clean.csv" --> Features
+    Features -- "X, y (train/test)" --> Training
+    Training -- "genera métricas y gráficos" --> Evaluation
+    Training -- "registra runs, promueve a Production" --> Mlflow
+    Mlflow -. "carga modelo stage=Production" .-> Precalculo
+    Combinations -- "combinaciones generadas" --> Precalculo
+    Precalculo -- "escribe tabla de precios" --> Sqlite
+    Config -. "valores estáticos" .-> EDA
+    Config -. "valores estáticos" .-> TRAIN
+    Config -. "valores estáticos" .-> PRECALC
+
+    style DataLoading fill:#1168BD,color:#fff,stroke:#0B4884
+    style Cleaning fill:#1168BD,color:#fff,stroke:#0B4884
+    style EdaMods fill:#1168BD,color:#fff,stroke:#0B4884
+    style Features fill:#1168BD,color:#fff,stroke:#0B4884
+    style Training fill:#1168BD,color:#fff,stroke:#0B4884
+    style Evaluation fill:#1168BD,color:#fff,stroke:#0B4884
+    style Combinations fill:#1168BD,color:#fff,stroke:#0B4884
+    style Precalculo fill:#1168BD,color:#fff,stroke:#0B4884
+    style Config fill:#5A7FA6,color:#fff,stroke:#0B4884
+    style Mlflow fill:#1168BD,color:#fff,stroke:#0B4884
+    style Sqlite fill:#1168BD,color:#fff,stroke:#0B4884
     style DagsHub fill:#999999,color:#fff,stroke:#6B6B6B
 ```
 
