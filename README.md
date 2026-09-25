@@ -6,6 +6,10 @@ Tasador de Autos con IA — sube una foto y el kilometraje de un auto y obtén s
 **Caso elegido:** ver [`docs/priorizacion_casos.md`](docs/priorizacion_casos.md)
 **Estado actual:** Sprint 1 (Datos) en curso. Línea base del modelo ya entrenada y registrada (ver [Evidencia de línea base](docs/evidence/baseline-modelo.md)).
 
+## Qué hace
+
+ValorAuto identifica marca, modelo y año de un auto a partir de una foto (visión con Gemini) y, junto con el kilometraje ingresado por el usuario, devuelve un precio de mercado estimado en milisegundos. El precio no se calcula en el momento: un modelo XGBoost entrenado sobre ~352K anuncios reales predice offline, cada madrugada, el precio de todas las combinaciones posibles marca/modelo/año/kilometraje y las deja precalculadas en una base de lectura rápida — así la consulta en vivo nunca espera a un modelo de ML.
+
 ## Sobre el proyecto
 
 **Problema:** tasar un auto usado en Bolivia hoy depende de buscar manualmente en catálogos/clasificados, sin una referencia rápida y confiable de precio.
@@ -14,7 +18,21 @@ Tasador de Autos con IA — sube una foto y el kilometraje de un auto y obtén s
 
 **Equipo:** Marvin Mollo Ramírez, Leonardo Delgado, Samuel Villca — Taller de Sistemas Inteligentes (SIS-352), UCB.
 
-**Resultados actuales de la línea base** (corrida real de punta a punta, `docs/evidence/baseline-modelo.md`):
+**Metodología:** el proyecto sigue CRISP-ML(Q); ver el mapeo completo de fases a la estructura del repo en [`docs/crisp-mlq.md`](docs/crisp-mlq.md).
+
+## Pipeline (data → modelo → API → app)
+
+1. **Data** ([`data/`](data/), [`src/model/data_loading.py`](src/model/data_loading.py), [`src/model/cleaning.py`](src/model/cleaning.py)) — Craigslist Vehicles Dataset (~427K anuncios) versionado con DVC + DagsHub, limpiado a 352,005 filas y 10 features (año, odómetro, marca, combustible, transmisión, tracción, tipo, condición, cilindros, tamaño).
+2. **Modelo** ([`src/model/training.py`](src/model/training.py), [`src/model/evaluation.py`](src/model/evaluation.py)) — se entrenan y comparan 3 modelos (Linear Regression, Random Forest, XGBoost) con tracking en MLflow; el de menor RMSE se promueve automáticamente a `Production` en el Model Registry.
+3. **Precálculo nocturno** ([`src/pipeline/`](src/pipeline/)) — el modelo `Production` predice sobre una grilla sintética de combinaciones marca/modelo/año × rango de km y escribe la tabla en SQLite (`data/precalc.db`), para que la consulta en vivo sea solo una lectura.
+4. **API** ([`src/api/`](src/api/), Node.js/Express) — expone `POST /tasacion`: recibe foto + km, llama a Gemini para identificar el vehículo y consulta `data/precalc.db` para devolver el precio.
+5. **App** ([`app/`](app/), React Native/Expo) — captura foto + kilometraje del usuario y muestra el precio estimado.
+
+Diagrama completo más abajo en [Arquitectura](#arquitectura).
+
+## Resultados
+
+**Línea base del modelo** (corrida real de punta a punta, detalle completo en [`docs/evidence/baseline-modelo.md`](docs/evidence/baseline-modelo.md)):
 
 | Modelo | RMSE | MAE | R² |
 |---|---|---|---|
@@ -22,9 +40,22 @@ Tasador de Autos con IA — sube una foto y el kilometraje de un auto y obtén s
 | Random Forest | 7048.09 | 4566.73 | 0.7518 |
 | **XGBoost (Production)** | **6085.26** | **3777.90** | **0.8150** |
 
-Entrenado sobre 352,005 filas limpias del Craigslist Vehicles Dataset. La tabla de precios precalculada tiene 78,915 combinaciones (marca/modelo/año/rango de km), con una latencia de consulta de ~0.24ms promedio.
+Entrenado sobre 352,005 filas limpias del Craigslist Vehicles Dataset (281,604 train / 70,401 test, `RANDOM_SEED=42`). La tabla de precios precalculada tiene 78,915 combinaciones (marca/modelo/año/rango de km), con una latencia de consulta de ~0.24ms promedio.
 
-**Metodología:** el proyecto sigue CRISP-ML(Q); ver el mapeo completo de fases a la estructura del repo en [`docs/crisp-mlq.md`](docs/crisp-mlq.md).
+<table>
+<tr>
+<td><img src="src/graphics/evaluacion/01_comparacion_modelos.png" alt="Comparación de métricas entre modelos" width="420"></td>
+<td><img src="src/graphics/evaluacion/02_predicho_vs_real_Model_XGBoost.png" alt="Predicho vs. real — XGBoost" width="420"></td>
+</tr>
+<tr>
+<td><img src="src/graphics/evaluacion/04_curva_aprendizaje_Model_XGBoost.png" alt="Curva de aprendizaje — XGBoost" width="420"></td>
+<td><img src="src/graphics/evaluacion/05_importancia_features_Model_XGBoost.png" alt="Importancia de features — XGBoost" width="420"></td>
+</tr>
+</table>
+
+Más gráficos (EDA, residuos, comparación por modelo) en [`src/graphics/`](src/graphics/): `eda/` (exploración del dataset), `evaluacion/` (métricas y diagnóstico del modelo), `pipeline/` (resumen del precálculo nocturno).
+
+**Limitación conocida:** el dataset es del mercado de EE. UU. (Craigslist), no del boliviano — el error reportado no necesariamente representa el error real prediciendo precios en Bolivia (riesgo **R2**, ver [`docs/risk-register.md`](docs/risk-register.md)).
 
 ## Stack decidido
 
@@ -63,7 +94,7 @@ El flujo de arriba (tasación en vivo) corre en milisegundos porque solo lee de 
 
 ## Estructura
 
-- [`docs/`](docs/) — documentación de equipo, arquitectura, ADRs, riesgos y evidencias.
+- [`docs/`](docs/) — documentación de equipo, arquitectura, ADRs, riesgos y evidencias. Ver [`docs/README.md`](docs/README.md).
 - [`data/`](data/) — datasets crudos y procesados (ver [`data/README.md`](data/README.md) para el estado de versionamiento).
 - [`src/`](src/) — componentes reutilizables: modelo de precio (`model/`, con `eda/` separado por tipo de exploración), precálculo nocturno (`pipeline/`), visión (`vision/`), API (`api/`), gráficos generados (`graphics/`). Ver [`src/README.md`](src/README.md).
 - [`notebooks/`](notebooks/) — notebooks delgados que orquestan las funciones de `src/` (`01_eda.ipynb`, `02_entrenamiento.ipynb`, `03_precalculo.ipynb`). Ver [ADR-0008](docs/adr/0008-separacion-componentes-notebooks-delgados.md).
