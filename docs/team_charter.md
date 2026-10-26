@@ -9,7 +9,7 @@
 | Integrante | Responsabilidad inicial | Disponibilidad | Restricción |
 |---|---|---|---|
 | Marvin Mollo | Modelo / IA — entrenamiento del modelo de precio, integración Gemini | Sáb-Dom + feriados nacionales | Prácticas preprofesionales, clases toda la semana |
-| Leonardo Delgado | Ingeniería — FastAPI, job nocturno, contenedores, despliegue | Sáb-Dom + feriados nacionales | Prácticas preprofesionales, clases toda la semana |
+| Leonardo Delgado | Ingeniería — backend Node.js/Express, job nocturno, contenedores, despliegue | Sáb-Dom + feriados nacionales | Prácticas preprofesionales, clases toda la semana |
 | Samuel Villca | Datos / Producto — limpieza de dataset, backlog, interfaz | Sáb-Dom + feriados nacionales | Prácticas preprofesionales, clases toda la semana |
 
 > [COMPLETAR] Reemplazar "Sáb-Dom" con bloques horarios exactos (ej. "Sáb 09:00-13:00") en la próxima reunión de equipo.
@@ -68,5 +68,5 @@ Una tarea se considera terminada cuando:
 - No introduce secretos ni datos sensibles (incluyendo llaves de API).
 - Si modifica código, ejecuta pruebas o justifica por qué no aplican.
 - Si usa IA, declara uso y verificación.
-- Si involucra el modelo de precio, registra el experimento (métricas de error, versión de datos, versión de modelo) en la herramienta de tracking (ej. MLflow).
+- Si involucra el modelo de precio, registra el experimento (métricas de error, versión de datos, versión de modelo) en MLflow.
 - Si involucra el job nocturno de precálculo, verifica que la tabla de precios se regeneró correctamente antes de dar por cerrada la tarea.
