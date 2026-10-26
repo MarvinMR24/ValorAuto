@@ -1,5 +1,7 @@
 import multer from 'multer';
+import sharp from 'sharp';
 import { config } from '../config/config.js';
+import { logger } from '../utils/logger.js';
 
 // Usamos almacenamiento en memoria (Buffer) para procesar directamente la imagen hacia Gemini
 // sin dejar archivos residuales en disco (ideal para microservicios / contenedores sin estado).
@@ -44,7 +46,7 @@ export const uploadTasacionMiddleware = (req, res, next) => {
     { name: 'file', maxCount: 1 },
   ]);
 
-  uploadFields(req, res, (err) => {
+  uploadFields(req, res, async (err) => {
     if (err) {
       if (err instanceof multer.MulterError && err.code === 'LIMIT_FILE_SIZE') {
         return res.status(400).json({
@@ -73,7 +75,47 @@ export const uploadTasacionMiddleware = (req, res, next) => {
       files?.file?.[0] ||
       req.file;
 
+    if (file && Buffer.isBuffer(file.buffer) && file.buffer.length > 0) {
+      const { buffer, mimetype } = await optimizeImageBuffer(file.buffer, file.mimetype);
+      file.originalSize = file.size;
+      file.buffer = buffer;
+      file.mimetype = mimetype;
+    }
+
     req.vehicleImage = file;
     next();
   });
 };
+
+/**
+ * Optimiza la imagen en memoria antes de enviarla a Gemini (portado de la rama sam):
+ * respeta la orientación EXIF, la reduce a IMAGE_MAX_DIMENSION px (800) por lado
+ * sin agrandarla y la recomprime a JPEG (calidad IMAGE_JPEG_QUALITY, mozjpeg).
+ * Unos pocos MB pasan a ~40-150 KB: menos latencia y la caché SHA-256 reconoce
+ * la misma foto aunque llegue recomprimida. Si sharp no puede leer el buffer
+ * (p. ej. un fixture de prueba), devuelve el original sin tocar.
+ *
+ * @param {Buffer} rawBuffer
+ * @param {string} mimetype
+ * @returns {Promise<{ buffer: Buffer, mimetype: string }>}
+ */
+export async function optimizeImageBuffer(rawBuffer, mimetype) {
+  const opciones = config.upload.optimization;
+  if (!opciones?.enabled || rawBuffer.length < 512) {
+    return { buffer: rawBuffer, mimetype };
+  }
+  try {
+    const buffer = await sharp(rawBuffer)
+      .rotate()
+      .resize({ width: opciones.maxDimension, height: opciones.maxDimension, fit: 'inside', withoutEnlargement: true })
+      .jpeg({ quality: opciones.jpegQuality, mozjpeg: true })
+      .toBuffer();
+    logger.debug(
+      { originalBytes: rawBuffer.length, optimizedBytes: buffer.length },
+      '[UploadMiddleware] Imagen optimizada para Gemini Vision'
+    );
+    return { buffer, mimetype: 'image/jpeg' };
+  } catch {
+    return { buffer: rawBuffer, mimetype };
+  }
+}

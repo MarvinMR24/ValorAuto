@@ -40,6 +40,9 @@ export async function identificarVehiculo(req, res) {
       confianza: vision.confidence,
     });
   } catch (err) {
+    if (err.code === 'imagen_invalida') {
+      return res.status(400).json({ error: 'imagen_invalida', message: err.message });
+    }
     if (err.code === 'vehiculo_no_identificado' || err.code === 'vision_format_error') {
       return res.status(422).json({
         error: err.code,

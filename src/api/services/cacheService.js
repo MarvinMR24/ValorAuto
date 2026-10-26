@@ -3,10 +3,10 @@ import crypto from 'crypto';
 import { config } from '../config/config.js';
 
 /**
- * Servicio de Caché en Memoria para Inferencia Visual de Gemini
+ * Servicio de Caché en Memoria para Inferencia de Gemini
  *
  * Utiliza LRUCache indexada por el hash criptográfico SHA-256 del búfer de la imagen.
- * Si dos peticiones envían la misma imagen, se reutiliza el resultado estructurado
+ * Si dos peticiones envían la misma imagen en la sesión, se reutiliza el resultado estructurado
  * evitando llamadas redundantes a la API de Google GenAI, reduciendo costos y latencia.
  */
 export class CacheService {
@@ -35,7 +35,7 @@ export class CacheService {
   /**
    * Recupera un resultado de visión almacenado en caché.
    *
-   * @param {string} hash - Hash SHA-256 de la imagen
+   * @param {string} hash - Hash SHA-256 de la imagen o clave de fallback
    * @returns {object|null} Resultado en caché o null si hubo cache-miss
    */
   get(hash) {
@@ -68,7 +68,7 @@ export class CacheService {
   }
 
   /**
-   * Limpia el contenido del caché y reinicia contadores.
+   * Limpia el contenido del caché en memoria y reinicia contadores.
    */
   clear() {
     this.cache.clear();

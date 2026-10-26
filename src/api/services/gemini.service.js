@@ -6,6 +6,43 @@ import { logger } from '../utils/logger.js';
 import { REVISION_GENERICA } from './revisionGenerica.js';
 import { LRUCache } from 'lru-cache';
 
+/**
+ * Tipo MIME real según los magic bytes de la imagen (JPEG, PNG, WEBP), o null.
+ * Portado de la rama sam.
+ */
+export function detectMimeFromMagicBytes(buf) {
+  if (!Buffer.isBuffer(buf) || buf.length < 12) return null;
+  if (buf[0] === 0xff && buf[1] === 0xd8 && buf[2] === 0xff) return 'image/jpeg';
+  if (buf[0] === 0x89 && buf[1] === 0x50 && buf[2] === 0x4e && buf[3] === 0x47) return 'image/png';
+  if (buf.toString('ascii', 0, 4) === 'RIFF' && buf.toString('ascii', 8, 12) === 'WEBP') return 'image/webp';
+  return null;
+}
+
+/** 400 / INVALID_ARGUMENT de Gemini: nunca se reintenta. */
+export function isBadRequestError(err) {
+  if (!err) return false;
+  const msg = String(err.message || '');
+  return (
+    err.status === 400 ||
+    err.statusCode === 400 ||
+    err.status === 'INVALID_ARGUMENT' ||
+    msg.includes('INVALID_ARGUMENT') ||
+    /"code":\s*400/.test(msg)
+  );
+}
+
+/** Errores transitorios de Gemini (429 / 503): ameritan probar el modelo de respaldo. */
+export function isRetryableError(err) {
+  if (!err || isBadRequestError(err)) return false;
+  const msg = String(err.message || '');
+  return (
+    [429, 503].includes(err.status) ||
+    [429, 503].includes(err.statusCode) ||
+    ['RESOURCE_EXHAUSTED', 'UNAVAILABLE'].includes(err.status) ||
+    /\b(429|503)\b|RESOURCE_EXHAUSTED|UNAVAILABLE/.test(msg)
+  );
+}
+
 export class GeminiVisionService {
   constructor() {
     this.apiKey = config.gemini.apiKey;
@@ -16,7 +53,8 @@ export class GeminiVisionService {
     this.tipsCache = new LRUCache({ max: 500, ttl: config.cache?.ttlMs || 24 * 60 * 60 * 1000 });
 
     if (this.apiKey) {
-      this.ai = new GoogleGenAI({ apiKey: this.apiKey });
+      // Sin reintentos ocultos del SDK: los reintentos los decide _generarConRespaldo (solo 429/503).
+      this.ai = new GoogleGenAI({ apiKey: this.apiKey, httpOptions: { retryOptions: { attempts: 1 } } });
     } else {
       this.ai = null;
     }
@@ -79,29 +117,19 @@ REGLAS ESTRICTAS DE RESPUESTA:
 `.trim();
 
     const base64Image = imageBuffer.toString('base64');
-
-    // Timeout configurable (REQ-001 / ADR-0004)
-    const timeoutPromise = new Promise((_, reject) => {
-      const timer = setTimeout(() => {
-        const error = new Error('Tiempo de espera agotado al consultar el servicio de visión.');
-        error.code = 'vision_no_disponible';
-        error.statusCode = 503;
-        reject(error);
-      }, this.timeoutMs);
-      timer.unref?.();
-    });
+    // El tipo real sale de la cabecera binaria cuando se puede (más fiable que el Content-Type del cliente)
+    const mimeReal = detectMimeFromMagicBytes(imageBuffer) || mimeType;
 
     const callPromise = (async () => {
       try {
-        const response = await this.ai.models.generateContent({
-          model: this.modelName,
+        const response = await this._generarConRespaldo({
           contents: [
             {
               role: 'user',
               parts: [
                 {
                   inlineData: {
-                    mimeType,
+                    mimeType: mimeReal,
                     data: base64Image,
                   },
                 },
@@ -124,6 +152,14 @@ REGLAS ESTRICTAS DE RESPUESTA:
           throw err;
         }
 
+        // 400 / INVALID_ARGUMENT: la imagen fue rechazada por Gemini; reintentar no sirve
+        if (isBadRequestError(err)) {
+          const imagenError = new Error('La imagen fue rechazada por el servicio de visión. Prueba con otra foto JPG o PNG.');
+          imagenError.code = 'imagen_invalida';
+          imagenError.statusCode = 400;
+          throw imagenError;
+        }
+
         const visionError = new Error(`Fallo en el servicio de visión: ${err.message}`);
         visionError.code = 'vision_no_disponible';
         visionError.statusCode = 503;
@@ -131,7 +167,13 @@ REGLAS ESTRICTAS DE RESPUESTA:
       }
     })();
 
-    const result = await Promise.race([callPromise, timeoutPromise]);
+    // Timeout configurable (REQ-001 / ADR-0004) sobre todo el intento, incluido el modelo de respaldo
+    const result = await this._withTimeout(callPromise, () => {
+      const error = new Error('Tiempo de espera agotado al consultar el servicio de visión.');
+      error.code = 'vision_no_disponible';
+      error.statusCode = 503;
+      return error;
+    });
     const visionDurationMs = Math.round((performance.now() - startTime) * 100) / 100;
 
     // Guardar en caché el resultado exitoso
@@ -184,8 +226,7 @@ REGLAS:
 
     try {
       const response = await this._withTimeout(
-        this.ai.models.generateContent({
-          model: this.modelName,
+        this._generarConRespaldo({
           contents: [{ role: 'user', parts: [{ text: promptText }] }],
           config: { responseMimeType: 'application/json', temperature: 0.2 },
         })
@@ -200,14 +241,33 @@ REGLAS:
     }
   }
 
-  _withTimeout(promise) {
-    return Promise.race([
-      promise,
-      new Promise((_, reject) => {
-        const timer = setTimeout(() => reject(new Error('timeout')), this.timeoutMs);
-        timer.unref?.();
-      }),
-    ]);
+  /**
+   * Llama a Gemini con el modelo configurado y, si está saturado (429/503), con el
+   * modelo de respaldo (GEMINI_FALLBACK_MODEL). Un 400/INVALID_ARGUMENT u otro error
+   * no transitorio se propaga sin reintentar. Portado de la rama sam.
+   */
+  async _generarConRespaldo(request) {
+    const modelos = [...new Set([this.modelName, config.gemini.fallbackModel].filter(Boolean))];
+    let ultimoError = null;
+    for (const model of modelos) {
+      try {
+        return await this.ai.models.generateContent({ ...request, model });
+      } catch (err) {
+        if (!isRetryableError(err)) throw err;
+        ultimoError = err;
+        logger.warn({ model, error: err.message }, '[GeminiVision] Modelo saturado (429/503), se intenta con el de respaldo');
+      }
+    }
+    throw ultimoError;
+  }
+
+  _withTimeout(promise, crearError = () => new Error('timeout')) {
+    let timer;
+    const timeout = new Promise((_, reject) => {
+      timer = setTimeout(() => reject(crearError()), this.timeoutMs);
+      timer.unref?.();
+    });
+    return Promise.race([promise, timeout]).finally(() => clearTimeout(timer));
   }
 
   _parseInspectionTips(rawText) {

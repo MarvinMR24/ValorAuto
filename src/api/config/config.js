@@ -32,6 +32,10 @@ export const config = {
   gemini: {
     apiKey: process.env.GEMINI_API_KEY || '',
     model: process.env.GEMINI_MODEL || 'gemini-3.5-flash',
+    // Modelo alternativo cuando el principal responde 429/503 (rama sam)
+    fallbackModel:
+      process.env.GEMINI_FALLBACK_MODEL ||
+      ((process.env.GEMINI_MODEL || '') === 'gemini-3.1-flash-lite' ? 'gemini-3.5-flash-lite' : 'gemini-3.1-flash-lite'),
     confidenceThreshold: parseFloat(process.env.VISION_CONFIDENCE_THRESHOLD || '0.6'),
     timeoutMs: parseInt(process.env.VISION_TIMEOUT_MS || '25000', 10),
   },
@@ -48,6 +52,12 @@ export const config = {
   upload: {
     maxFileSizeBytes: 5 * 1024 * 1024, // 5 MB según especificaciones de seguridad
     allowedMimeTypes: ['image/jpeg', 'image/png', 'image/jpg', 'image/webp'],
+    // Optimización en el servidor antes de enviar a Gemini (rama sam): EXIF, 800 px, JPEG q75
+    optimization: {
+      enabled: process.env.IMAGE_OPTIMIZATION_ENABLED !== 'false',
+      maxDimension: parseInt(process.env.IMAGE_MAX_DIMENSION || '800', 10),
+      jpegQuality: parseInt(process.env.IMAGE_JPEG_QUALITY || '75', 10),
+    },
   },
   odometer: {
     min: 0,

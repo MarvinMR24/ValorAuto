@@ -2,11 +2,12 @@ import Fuse from 'fuse.js';
 
 /**
  * Normalizador y Comparador Flexible (Fuzzy Matching) para ValorAuto
- * 
+ *
  * Estandariza textos devueltos por Gemini Vision y los registros de SQLite:
  * 1. Limpieza de acentos, caracteres especiales y mayúsculas.
  * 2. Mapeo de alias comunes (ej. chevy -> chevrolet, vw -> volkswagen).
  * 3. Búsqueda difusa (Fuzzy Matching) mediante Fuse.js para tolerar errores ortográficos leves.
+ * 4. Normalización de estado estético (condition) y formateo de presentación.
  */
 
 // Diccionario de alias conocidos para marcas automotrices
@@ -41,6 +42,31 @@ export const TYPE_ALIASES = {
   'station wagon': 'wagon',
   familiar: 'wagon',
 };
+
+// Diccionario de alias para estado estético (condition en dataset de Leo)
+export const CONDITION_ALIASES = {
+  excelente: 'excellent',
+  excellent: 'excellent',
+  'como nuevo': 'like new',
+  'like new': 'like new',
+  impecable: 'like new',
+  'muy bueno': 'excellent',
+  bueno: 'good',
+  'buen estado': 'good',
+  good: 'good',
+  normal: 'good',
+  regular: 'fair',
+  aceptable: 'fair',
+  fair: 'fair',
+   desgastado: 'fair',
+  malo: 'salvage',
+  danado: 'salvage',
+  siniestrado: 'salvage',
+  salvage: 'salvage',
+};
+
+// Marcas que se escriben en siglas mayúsculas para visualización
+const UPPERCASE_BRANDS = new Set(['bmw', 'gmc', 'ram', 'kia', 'vw', 'byd', 'mg', 'jac', 'jmc']);
 
 /**
  * Limpia y normaliza una cadena de texto:
@@ -120,7 +146,7 @@ export function fuzzyMatch(term, candidates, threshold = 0.35) {
  *
  * @param {string} manufacturer - Marca reportada por Gemini u origen externo
  * @param {string[]} [knownManufacturers=[]] - Marcas existentes en SQLite
- * @returns {string} Marca estandarizada
+ * @returns {string} Marca estandarizada en minúsculas
  */
 export function normalizeManufacturer(manufacturer, knownManufacturers = []) {
   const clean = normalizeText(manufacturer);
@@ -197,4 +223,42 @@ export function normalizeVehicleType(type) {
   const clean = normalizeText(type);
   if (!clean) return null;
   return TYPE_ALIASES[clean] || clean;
+}
+
+/**
+ * Normaliza el estado estético del vehículo al vocabulario del modelo ML (src/model/config.py).
+ *
+ * @param {string} condition - Estado estético (ej: 'bueno', 'excellent', 'fair')
+ * @returns {string} Estado estandarizado ('excellent', 'like new', 'good', 'fair', 'salvage')
+ */
+export function normalizeCondition(condition) {
+  if (!condition) return 'good';
+  const clean = normalizeText(condition);
+  return CONDITION_ALIASES[clean] || 'good';
+}
+
+/**
+ * Formatea una marca o modelo normalizado para presentación amigable (Title Case).
+ * Ej: 'toyota' -> 'Toyota', 'bmw' -> 'BMW', 'mercedes-benz' -> 'Mercedes-Benz', 'f-150' -> 'F-150'
+ *
+ * @param {string} text - Texto normalizado
+ * @returns {string} Texto formateado para visualización
+ */
+export function formatDisplayName(text) {
+  if (!text || typeof text !== 'string') return '';
+  const clean = text.trim().toLowerCase();
+  if (UPPERCASE_BRANDS.has(clean)) {
+    return clean.toUpperCase();
+  }
+
+  return clean
+    .split(/(\s+|-)/)
+    .map((part) => {
+      if (part === ' ' || part === '-' || !part) return part;
+      if (UPPERCASE_BRANDS.has(part)) return part.toUpperCase();
+      // Si tiene números y letras cortas como f150 o m3, capitalizar letras
+      if (/^[a-z]{1,2}\d+$/i.test(part)) return part.toUpperCase();
+      return part.charAt(0).toUpperCase() + part.slice(1);
+    })
+    .join('');
 }

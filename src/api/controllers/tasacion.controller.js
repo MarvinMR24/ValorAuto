@@ -145,6 +145,11 @@ export async function tasarVehiculo(req, res, next) {
     try {
       visionResult = await geminiService.identifyVehicle(file.buffer, file.mimetype);
     } catch (visionErr) {
+      // 400: Gemini rechazó la imagen (INVALID_ARGUMENT), no tiene sentido reintentar
+      if (visionErr.code === 'imagen_invalida') {
+        return res.status(400).json({ error: 'imagen_invalida', message: visionErr.message });
+      }
+
       // 422 Unprocessable Entity: El vehículo no fue reconocido o baja confianza
       if (
         visionErr.code === 'vehiculo_no_identificado' ||

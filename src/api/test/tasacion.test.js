@@ -1,4 +1,4 @@
-import { describe, expect, it, beforeAll, afterAll } from 'bun:test';
+import { describe, expect, it, beforeAll } from 'bun:test';
 import { sqliteService } from '../services/sqlite.service.js';
 import { GeminiVisionService, geminiService } from '../services/gemini.service.js';
 import { cacheService } from '../services/cacheService.js';
@@ -12,9 +12,9 @@ describe('ValorAuto API - Tests Unitarios e Integración', () => {
     }
   });
 
-  afterAll((done) => {
-    server.close(done);
-  });
+  // El servidor de index.js es compartido por todos los archivos de test (bun test
+  // corre en un solo proceso): cerrarlo aquí rompía los archivos que corrieran después.
+  // Bun lo libera al terminar la suite.
 
   describe('Normalizador y Fuzzy Matching (normalizer.js)', () => {
     it('debe limpiar diacríticos, mayúsculas y caracteres especiales', () => {
