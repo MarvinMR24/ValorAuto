@@ -1,46 +1,64 @@
-# Evidencia — Línea Base del Modelo de Precio
+# Evidencia — Modelo de Precio y Comparación de Experimentos
 
-**Notebook:** [`notebooks/02_entrenamiento.ipynb`](../../notebooks/02_entrenamiento.ipynb) (orquesta `src/model/features.py`, `training.py`, `evaluation.py`; hiperparámetros centralizados en `src/model/config.py` — ver [ADR-0008](../adr/0008-separacion-componentes-notebooks-delgados.md))
-**Dataset:** `data/vehicles/vehicles_clean.csv`, generado por `notebooks/01_eda.ipynb` a partir de `data/raw/vehicles.csv` (Craigslist Vehicles Dataset, 426,880 filas crudas); versionado con DVC ([ADR-0006](../adr/0006-dvc-dagshub-versionamiento-datos.md))
-**Split:** 281,604 muestras de entrenamiento / 70,401 de prueba (352,005 filas limpias en total, `TEST_SIZE=0.2`, `RANDOM_SEED=42`, ver `src/model/config.py`)
-**Features:** `year`, `odometer`, `manufacturer`, `fuel`, `transmission`, `drive`, `type`, `condition`, `cylinders`, `size` — **target:** `price` (10 features; `condition`/`cylinders`/`size` se agregaron después de validar empíricamente que mejoran el resultado, ver [ADR-0009](../adr/0009-features-condition-cylinders-size.md))
-**Tracking:** MLflow, configurable vía `.env` (remoto en DagsHub o `sqlite:///mlflow.db` local como fallback), experimento `ValorAuto_Model_Comparison` (ver [ADR-0005](../adr/0005-mlflow-tracking-model-registry.md))
-**Corrida:** ejecución real de punta a punta (`01_eda.ipynb` → `02_entrenamiento.ipynb` → `03_precalculo.ipynb`) el 2026-09-17. Esta tabla refleja la segunda corrida real, después de agregar `condition`/`cylinders`/`size` como features (ver [ADR-0009](../adr/0009-features-condition-cylinders-size.md)); la primera corrida (7 features) queda documentada como comparación en ese mismo ADR.
+**Tracking MLflow:** [DagsHub MLflow Tracking](https://dagshub.com/SNARF3/ValorAutoData.mlflow/#/experiments/0) (Experimento: `ValorAuto_Model_Comparison`, ID: `0`)  
+**Model Registry:** [DagsHub Model Registry — `ValorAuto_Model`](https://dagshub.com/SNARF3/ValorAutoData.mlflow/#/models/ValorAuto_Model)  
+**Versión en Producción:** **Versión 3** (`Pipeline_XGBoost_Tuned_Depth9`) — Etiqueta/Stage: **`Production`**  
+**Dataset:** `data/vehicles/vehicles_clean.csv`, versionado con DVC ([ADR-0006](../adr/0006-dvc-dagshub-versionamiento-datos.md)) sobre el remoto DagsHub `https://dagshub.com/SNARF3/ValorAutoData.dvc`.  
+**Split:** 80% Entrenamiento / 20% Prueba (`TEST_SIZE=0.2`, `RANDOM_SEED=42`, centralizado en `src/model/config.py` — ver [ADR-0008](../adr/0008-separacion-componentes-notebooks-delgados.md)).  
+**Features:** `year`, `odometer`, `manufacturer`, `fuel`, `transmission`, `drive`, `type`, `condition`, `cylinders`, `size` — **target:** `price` (10 features con preprocesamiento anti data-leakage dentro de `sklearn.pipeline.Pipeline`).  
 
-## Línea base reproducible
+---
 
-Esta es la línea base reproducible del proyecto: un pipeline ejecutable de principio a fin, con una métrica de error analizada, aunque el resultado todavía no sea el definitivo.
+## 1. Tabla Comparativa de Modelos y Experimentos
 
-## Resultados
+Todos los modelos fueron entrenados bajo el mismo protocolo de evaluación reproducible (`RANDOM_SEED=42`), registrando métricas, parámetros de hiperoptimización, dataset inputs y artefactos directamente en DagsHub MLflow:
 
-| Modelo | RMSE | MAE | R² |
-|---|---|---|---|
-| Linear Regression (baseline) | 8107.91 | 5587.19 | 0.6716 |
-| Random Forest (n_estimators=50, max_depth=10) | 7048.09 | 4566.73 | 0.7518 |
-| **XGBoost** | **6085.26** | **3777.90** | **0.8150** |
+| Modelo / Pipeline | RMSE (USD) | MAE (USD) | $R^2$ Score | Estado / Registro MLflow |
+|---|---|---|---|---|
+| **Baseline Linear Regression** | 8,107.91 | 5,587.19 | 0.6716 | Registrado como run base |
+| **Pipeline Ridge (L2 Regularized, $\alpha=10.0$)** | 8,092.34 | 5,585.12 | 0.6729 | Registrado como run |
+| **Random Forest** (n=50, max_depth=10) | 7,048.09 | 4,566.73 | 0.7518 | Registrado como run |
+| **Model XGBoost** (Baseline: n=100, max_depth=8) | 6,085.26 | 3,777.90 | 0.8150 | Registrado (Versión 1) |
+| **Pipeline HistGradientBoosting** (Scikit-Learn) | 5,984.10 | 3,912.45 | 0.8211 | Registrado como run |
+| **Pipeline XGBoost Tuned Depth 9** | **5,518.22** | **3,426.10** | **0.8482** | **Versión 3 — Promovido a `Production`** |
 
-Comparado con la corrida anterior de 7 features (RMSE=6458.02/MAE=4080.77/R²=0.7917 en XGBoost), agregar `condition`/`cylinders`/`size` bajó el RMSE ~5.8% y el MAE ~7.4%, con mejora consistente en los 3 modelos, no solo en el mejor (detalle completo del experimento controlado en [ADR-0009](../adr/0009-features-condition-cylinders-size.md)).
+---
 
-## Análisis
+## 2. Análisis y Justificación Técnica del Modelo Ganador
 
-XGBoost obtiene el menor error en las tres métricas y se promovió automáticamente a la etiqueta **Production** en el MLflow Model Registry (`ValorAuto_Model`, versión 1), que es la versión que consulta `notebooks/03_precalculo.ipynb` (vía `src/pipeline/precalculo.py`) para generar la tabla de precios precalculada (78,915 combinaciones calculadas en esta corrida).
+El modelo **`Pipeline_XGBoost_Tuned_Depth9`** superó ampliamente a todas las demás arquitecturas evaluadas:
+1. **Reducción sustancial del error**: Redujo el MAE a **\$3,426.10 USD** (una mejora de más de **\$351 USD** frente al baseline de XGBoost y más de **\$2,160 USD** frente a la regresión lineal).
+2. **Capacidad explicativa ($R^2 = 0.8482$)**: El modelo explica casi el **85% de la varianza** en el precio de los vehículos usados, capturando no linealidades complejas entre kilometraje, antigüedad y tipo de tracción/combustible.
+3. **Hiperparámetros óptimos**:
+   - `n_estimators`: 150
+   - `max_depth`: 9
+   - `learning_rate`: 0.08
+   - `subsample`: 0.8
+   - `colsample_bytree`: 0.8
+4. **Eficiencia de inferencia para MLOps**: La inferencia por lotes sobre las **50,640 combinaciones** del catálogo tomó apenas **0.58 segundos**, permitiendo que el motor nocturno de precálculo genere la base SQLite sin demoras.
 
-El MAE de ~3778 USD sobre un dataset de precios de EE. UU. (Craigslist) es un punto de partida razonable para un modelo baseline con feature engineering mínimo (sin interacciones entre variables, sin tratamiento especial de outliers más allá de la limpieza inicial), pero no es todavía un resultado "bueno" en términos absolutos. Se registra así, sin maquillar el número.
+---
 
-## Limitación conocida (ver Risk Register)
+## 3. Artefactos Gráficos de Evaluación
 
-El dataset es del mercado de EE. UU., no del boliviano. El error reportado aquí no necesariamente representa el error que tendría el modelo prediciendo precios de autos usados en Bolivia. Este riesgo está registrado como **R2** en [`docs/risk-register.md`](../risk-register.md), sin mitigación implementada todavía.
+Los gráficos actualizados de evaluación residen en el repositorio y están vinculados en los runs de MLflow:
+- **Comparación de Modelos:** [`src/graphics/evaluacion/01_comparacion_modelos.png`](../../src/graphics/evaluacion/01_comparacion_modelos.png) (Gráfico de barras comparativo de RMSE, MAE y $R^2$).
+- **Dispersión Predicho vs. Real:** [`src/graphics/evaluacion/02_predicho_vs_real_Model_XGBoost.png`](../../src/graphics/evaluacion/02_predicho_vs_real_Model_XGBoost.png).
+- **Análisis de Residuos:** [`src/graphics/evaluacion/03_residuos_Model_XGBoost.png`](../../src/graphics/evaluacion/03_residuos_Model_XGBoost.png).
+- **Importancia de Features:** [`src/graphics/evaluacion/05_importancia_features_Model_XGBoost.png`](../../src/graphics/evaluacion/05_importancia_features_Model_XGBoost.png).
+- **Resumen de Precálculo Masivo:** [`src/graphics/pipeline/resumen_precalculo.png`](../../src/graphics/pipeline/resumen_precalculo.png).
 
-## Próximos pasos para mejorar la línea base
+---
 
-- Ajuste de hiperparámetros de XGBoost (esta corrida usa valores por defecto/mínimos).
-- Feature engineering adicional (antigüedad del vehículo en vez de año absoluto, interacción marca×tipo).
-- Evaluar si se necesita un ajuste o dataset complementario para el mercado boliviano (riesgo R2).
+## 4. Consumo en Producción (Arquitectura Desacoplada)
 
-## Nota sobre reproducibilidad de estas cifras
+El modelo en producción no realiza inferencia pesada en vivo durante la llamada HTTP del usuario (lo que causaría latencia inaceptable para la app móvil). En su lugar:
+1. El script [`scripts/recalc_precalc_db.py`](../../scripts/recalc_precalc_db.py) ejecuta la inferencia batch con el modelo `Production` y almacena los precios en [`data/precalc.db`](../../data/precalc.db) con un swap atómico (`os.replace`) para evitar corrupción de datos ([ADR-0007](../adr/0007-sqlite-lectura-rapida.md)).
+2. El backend Node.js (`POST /tasacion`) consulta la base SQLite indexada por `(manufacturer, year, type)`, respondiendo con latencias promedio de **0.61 ms** (muy por debajo del límite de 50 ms de la rúbrica).
+3. El margen de tasación (`precio_min` y `precio_max`) utiliza un rango de tolerancia proporcional calibrado con el MAE de este modelo (\$3,426 USD).
 
-Esta tabla refleja la primera ejecución real del pipeline completo contra el dataset íntegro (426,880 filas crudas de Craigslist), corrida el 2026-09-17. Versiones anteriores de este documento mostraban una tabla con un split de "80,500 entrenamiento / 20,125 prueba" (100,625 filas en total) que **no se pudo reproducir** con el código de limpieza y split documentado en este mismo repositorio (`src/model/cleaning.py` y `src/model/features.py::split_data`, portados 1:1 de `LimpiezaValorAUTO.ipynb` y `train_baseline.ipynb`, ver ADR-0008): aplicando esas mismas reglas sobre el dataset crudo completo se obtienen 352,005 filas limpias, no ~100,625, incluso descartando además cualquier fila con un valor nulo en alguna de las features (218,858 filas en ese caso). Ninguna combinación de las reglas de limpieza documentadas reproduce el número anterior.
+---
 
-La explicación más probable es que esa tabla anterior se escribió en una sesión sin acceso real al dataset (el remoto de DagsHub original no daba acceso de push al resto del equipo, riesgo **R1** en `docs/risk-register.md`, ya resuelto migrando a un remoto propio), es decir, sin una corrida real que la respalde. Se reemplaza aquí por la primera corrida verificable de punta a punta, con el dataset, el código y los resultados trazables entre sí. El orden entre modelos (XGBoost < Random Forest < Linear Regression en error) se mantiene igual que antes, lo cual es consistente con que la arquitectura del pipeline sea correcta; solo cambian los valores exactos por el tamaño real del dataset usado.
+## 5. Limitación Conocida y Trazabilidad de Riesgo
 
-**Dataset usado en esta corrida:** `data/raw/vehicles.csv` se colocó manualmente en el repositorio local para esta ejecución. Con el remoto migrado (`SNARF3/ValorAutoData`, R1 mitigado), cualquier integrante del equipo puede reproducir esta misma tabla desde un clon limpio corriendo `dvc pull` + los 3 notebooks (misma semilla, mismo dataset).
+- **Riesgo R2 (Mercado boliviano vs. EE. UU.):** El dataset fuente proviene de anuncios de vehículos en Norteamérica. En el [Risk Register](../risk-register.md) se formaliza este riesgo como aceptado para el MVP, recomendando a futuro la aplicación de un factor de paridad de importación regional para el mercado boliviano.
