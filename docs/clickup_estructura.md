@@ -1,5 +1,7 @@
 # Estructura de ClickUp
 
+**Espacio del proyecto:** <https://app.clickup.com/90171461819/v/s/90176873612> (backlog, sprints y backlog de estabilización de la 2.ª defensa).
+
 **Proyecto:** Tasador de Autos con IA (foto + kilometraje -> precio de mercado instantáneo)
 
 ## Listas (tablero mínimo)

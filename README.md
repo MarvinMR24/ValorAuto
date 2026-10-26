@@ -1,151 +1,169 @@
 # ValorAuto
 
-Tasador de Autos con IA — sube una foto y el kilometraje de un auto y obtén su precio de mercado al instante.
+Tasador de autos con IA: ingresa los datos de un auto o sube una foto, y obtén su precio de mercado estimado, el rango esperado y las fallas comunes que conviene revisar antes de comprarlo.
 
-**Curso:** Taller de Sistemas Inteligentes — LAB_01 (SIS-352)
-**Caso elegido:** ver [`docs/priorizacion_casos.md`](docs/priorizacion_casos.md)
-**Estado actual:** Sprint 1 (Datos) en curso. Línea base del modelo ya entrenada y registrada (ver [Evidencia de línea base](docs/evidence/baseline-modelo.md)).
+**Curso:** Taller de Sistemas Inteligentes — LAB_01 (SIS-352), UCB
+**Equipo:** Marvin Mollo Ramírez, Leonardo Delgado, Samuel Villca
+**Estado:** MVP integrado para la **2.ª defensa (EC2)**: app, API, componente inteligente y pipeline de ML funcionando de punta a punta con Docker Compose.
+**Gestión:** backlog y tareas en [ClickUp](https://app.clickup.com/90171461819/v/s/90176873612) · riesgos en [`docs/risk-register.md`](docs/risk-register.md) · plan B de la demo en [`docs/plan-b-demo.md`](docs/plan-b-demo.md)
 
 ## Qué hace
 
-ValorAuto identifica marca, modelo y año de un auto a partir de una foto (visión con Gemini) y, junto con el kilometraje ingresado por el usuario, devuelve un precio de mercado estimado en milisegundos. El precio no se calcula en el momento: un modelo XGBoost entrenado sobre ~352K anuncios reales predice offline, cada madrugada, el precio de todas las combinaciones posibles marca/modelo/año/kilometraje y las deja precalculadas en una base de lectura rápida — así la consulta en vivo nunca espera a un modelo de ML.
+1. **Dos formas de tasar** desde la app móvil (React Native + Expo):
+   - **Ingresar datos:** marca, modelo, año y kilometraje.
+   - **Usar una foto:** Gemini identifica marca, modelo y año y **prellena el formulario**; el usuario corrige si hace falta y completa el kilometraje.
+2. **Precio de mercado** en milisegundos: no se calcula en el momento. Un modelo XGBoost entrenado sobre 352.005 anuncios reales deja precalculadas 80.520 combinaciones (marca + modelo + año + tipo + kilometraje) en SQLite, y la API solo las lee ([ADR-0003](docs/adr/0003-precalculo-nocturno-vs-tiempo-real.md)).
+3. **Fallas comunes y qué revisar primero** para ese modelo, generadas con Gemini en modo texto, con un checklist genérico de respaldo ([ADR-0011](docs/adr/0011-gemini-checklist-inspeccion.md)).
 
-## Sobre el proyecto
+Gemini **nunca** da precios: solo identifica el auto y redacta la revisión ([ADR-0004](docs/adr/0004-gemini-vision-vs-modelo-propio.md)). El precio sale 100 % del modelo propio.
 
-**Problema:** tasar un auto usado en Bolivia hoy depende de buscar manualmente en catálogos/clasificados, sin una referencia rápida y confiable de precio.
+**Problema:** tasar un auto usado en Bolivia hoy depende de buscar a mano en catálogos y clasificados, sin una referencia rápida y confiable. Detalle del Product Goal, alcance y backlog en [`docs/contexto/contexto_proyecto.md`](docs/contexto/contexto_proyecto.md). Metodología: CRISP-ML(Q) ([`docs/crisp-mlq.md`](docs/crisp-mlq.md)).
 
-**Product Goal:** para un usuario que quiere vender o comprar un auto usado en Bolivia, el Tasador de Autos IA es una app móvil que identifica el vehículo a partir de una foto (marca, modelo, año) y, junto con el kilometraje ingresado, entrega un precio de mercado precalculado cada madrugada — sin cómputo de ML en el momento de la consulta. Detalle completo del objetivo, alcance y backlog en [`docs/contexto/contexto_proyecto.md`](docs/contexto/contexto_proyecto.md).
+## Arquitectura
 
-**Equipo:** Marvin Mollo Ramírez, Leonardo Delgado, Samuel Villca — Taller de Sistemas Inteligentes (SIS-352), UCB.
+Vista simplificada (C4 completo y secuencia en [`docs/architecture/`](docs/architecture/C4-ValorAuto.md)):
 
-**Metodología:** el proyecto sigue CRISP-ML(Q); ver el mapeo completo de fases a la estructura del repo en [`docs/crisp-mlq.md`](docs/crisp-mlq.md).
+```mermaid
+flowchart LR
+    Usuario(["Usuario"]) --> App["App móvil<br/>React Native + Expo SDK 58"]
+    App -->|"/catalogo · /identificar<br/>/tasacion/datos · /revision"| API["API<br/>Bun + Express (Docker)"]
+    API -->|"foto 800 px / texto validado"| Gemini[["Google Gemini<br/>+ modelo de respaldo"]]
+    API -->|"consulta por modelo"| DB[("precalc.db<br/>SQLite, 80.520 filas")]
+    Pipeline["Pipeline de ML<br/>src/model · src/pipeline · scripts/"] -->|"escribe con el modelo Production"| DB
+    Pipeline -->|"runs + Model Registry v4"| DagsHub[["DagsHub<br/>DVC + MLflow"]]
+    DagsHub -.->|"dataset versionado"| Pipeline
+```
 
-## Pipeline (data → modelo → API → app)
-
-1. **Data** ([`data/`](data/), [`src/model/data_loading.py`](src/model/data_loading.py), [`src/model/cleaning.py`](src/model/cleaning.py)) — Craigslist Vehicles Dataset (~427K anuncios) versionado con DVC + DagsHub, limpiado a 352,005 filas y 10 features (año, odómetro, marca, combustible, transmisión, tracción, tipo, condición, cilindros, tamaño).
-2. **Modelo** ([`src/model/training.py`](src/model/training.py), [`src/model/evaluation.py`](src/model/evaluation.py)) — se entrenan y comparan 3 modelos (Linear Regression, Random Forest, XGBoost) con tracking en MLflow; el de menor RMSE se promueve automáticamente a `Production` en el Model Registry.
-3. **Precálculo nocturno** ([`src/pipeline/`](src/pipeline/)) — el modelo `Production` predice sobre una grilla sintética de combinaciones marca/modelo/año × rango de km y escribe la tabla en SQLite (`data/precalc.db`), para que la consulta en vivo sea solo una lectura.
-4. **API** ([`src/api/`](src/api/), Node.js/Express) — expone `POST /tasacion`: recibe foto + km, llama a Gemini para identificar el vehículo y consulta `data/precalc.db` para devolver el precio.
-5. **App** ([`app/`](app/), React Native/Expo) — captura foto + kilometraje del usuario y muestra el precio estimado.
-
-Diagrama completo más abajo en [Arquitectura](#arquitectura).
-
-## Resultados
-
-**Línea base del modelo** (corrida real de punta a punta, detalle completo en [`docs/evidence/baseline-modelo.md`](docs/evidence/baseline-modelo.md)):
-
-| Modelo | RMSE | MAE | R² |
+| Capa | Tecnología | Dónde | ADR |
 |---|---|---|---|
-| Linear Regression (baseline) | 8107.91 | 5587.19 | 0.6716 |
-| Random Forest | 7048.09 | 4566.73 | 0.7518 |
-| **XGBoost (Production)** | **6085.26** | **3777.90** | **0.8150** |
+| App móvil | React Native + Expo SDK 58 (Expo Go) | [`app/`](app/) | [0002](docs/adr/0002-frontend-react-native-expo.md) |
+| API | Bun + Express, Zod, multer + sharp, pino, Swagger | [`src/api/`](src/api/) | [0001](docs/adr/0001-backend-nodejs-express.md) |
+| Componente generativo | Google Gemini (visión + texto) | [`src/api/services/gemini.service.js`](src/api/services/gemini.service.js) | [0004](docs/adr/0004-gemini-vision-vs-modelo-propio.md), [0011](docs/adr/0011-gemini-checklist-inspeccion.md), [0012](docs/adr/0012-exclusion-rag-y-agentes.md) |
+| Modelo de precio | XGBoost + `model_base` (Scikit-Learn pipeline) | [`src/model/`](src/model/) | [0009](docs/adr/0009-features-condition-cylinders-size.md), [0010](docs/adr/0010-model-base-feature-y-busqueda-por-modelo.md) |
+| Precálculo | SQLite `data/precalc.db` | [`src/pipeline/`](src/pipeline/) | [0003](docs/adr/0003-precalculo-nocturno-vs-tiempo-real.md), [0007](docs/adr/0007-sqlite-lectura-rapida.md) |
+| Tracking / Registry | MLflow en DagsHub | [`scripts/sync_dagshub_model.py`](scripts/sync_dagshub_model.py) | [0005](docs/adr/0005-mlflow-tracking-model-registry.md) |
+| Datos versionados | DVC + DagsHub | [`data/`](data/) | [0006](docs/adr/0006-dvc-dagshub-versionamiento-datos.md) |
+| Contenedores | Docker Compose (`api`, `mlflow`, `training`, `test-ml`) | [`docker-compose.yml`](docker-compose.yml) | — |
 
-Entrenado sobre 352,005 filas limpias del Craigslist Vehicles Dataset (281,604 train / 70,401 test, `RANDOM_SEED=42`). La tabla de precios precalculada tiene 78,915 combinaciones (marca/modelo/año/rango de km), con una latencia de consulta de ~0.24ms promedio.
+## Cómo ejecutarlo
+
+### Requisitos
+- Docker Desktop.
+- Node.js 20 o más nuevo (para la app y el E2E).
+- DVC (`pip install dvc`) con acceso a DagsHub.
+- **Expo Go (SDK 58)** en el teléfono, en la misma red Wi-Fi que la computadora.
+
+### 1. Código y datos
+```bash
+git clone https://github.com/MarvinMR24/ValorAuto.git
+cd ValorAuto
+dvc pull data/vehicles/vehicles_clean.csv.dvc        # dataset limpio (352.005 filas)
+```
+Si DVC pide autenticación, ver la [nota de acceso](#acceso-a-dagshub).
+
+### 2. Configuración y secretos
+```bash
+cp .env.example .env        # completar: GEMINI_API_KEY, MLFLOW_TRACKING_URI/USERNAME/PASSWORD (token de DagsHub)
+```
+Variables del API y sus valores vigentes: [`src/api/.env.example`](src/api/.env.example). Usa `BASELINE_MAE=3243` (MAE del modelo vigente). El `.env` nunca se commitea.
+
+### 3. Base de precios (`data/precalc.db`)
+No se versiona en git: se genera desde el dataset. Elige una opción:
+```bash
+docker compose build training
+# Entrena, registra en MLflow (DagsHub) como Production y genera precalc.db con ese mismo modelo:
+docker compose run --rm training python3 -m scripts.sync_dagshub_model
+# Sin tocar MLflow (solo regenera precalc.db localmente):
+docker compose run --rm training python3 scripts/recalc_precalc_db.py
+```
+
+### 4. Backend
+```bash
+docker compose up -d --build api
+docker compose ps                      # valorauto-api → healthy
+scripts/smoke_test.sh                  # verificación rápida del despliegue (ver "Pruebas")
+```
+API en `http://localhost:3000`, Swagger en `http://localhost:3000/docs`, estado en `/health`. Tras regenerar `precalc.db`: `docker compose restart api`.
+
+### 5. App en el teléfono
+```bash
+ipconfig getifaddr en0                 # IP de la computadora en la red local (macOS)
+cd app
+npm install
+echo "EXPO_PUBLIC_API_URL=http://<esa-IP>:3000" > .env
+npx expo start -c                      # escanear el QR con Expo Go
+```
+Detalle en [`app/README.md`](app/README.md). Si algo falla en la demo: [`docs/plan-b-demo.md`](docs/plan-b-demo.md).
+
+### Otros servicios
+```bash
+docker compose up mlflow                              # UI de MLflow local en http://localhost:5001
+docker compose run --rm training                      # pipeline completo con notebooks (01_eda → 02_entrenamiento → 03_precalculo)
+```
+
+## Pruebas
+
+| Nivel | Qué valida | Comando | Resultado (2026-10-26) |
+|---|---|---|---|
+| Unitarias + integración (API) | Validaciones, errores 400/404/422/429/503, búsqueda en SQLite, caché, modelo de respaldo de Gemini, optimización de imágenes, **seguridad** (prompt injection, filtro de precios, lista blanca de campos, Helmet) | `docker run --rm -v "$PWD/src/api":/src:ro oven/bun:1.4.4 sh -c "cp -r /src /w && cd /w && bun install --frozen-lockfile --ignore-scripts >/dev/null && bun test"` | **64/64** |
+| Unitarias (ML) | Configuración de features, limpieza, combinaciones, piso de precio, escritura atómica, esquema de `precalc.db` | `docker compose --profile tools run --rm test-ml` | **26/26** |
+| E2E | App real (build web) → API → precalc.db → resultado en pantalla; foto real → Gemini → precio → revisión | `cd tests/e2e && npm install && npx playwright install chromium && npm run build:app && npm test` | **4/4** |
+| Smoke | Despliegue levantado: salud, catálogo, tasación, revisión y errores | `scripts/smoke_test.sh [URL]` (con foto real: `CON_GEMINI=1 scripts/smoke_test.sh`) | **OK** |
+
+Detalle de las pruebas E2E en [`tests/e2e/`](tests/e2e/). Con Node 26, el E2E necesita Playwright 1.63 (ya fijado en su `package.json`).
+
+## Resultados del modelo
+
+Detalle completo, gráficos y experimentos descartados en [`docs/evidence/baseline-modelo.md`](docs/evidence/baseline-modelo.md). Mismo split 80/20 (`RANDOM_SEED=42`, 281.604 train / 70.401 test):
+
+| Modelo | RMSE (USD) | MAE (USD) | R² | Estado |
+|---|---|---|---|---|
+| Linear Regression (línea base) | 8.107,91 | 5.587,19 | 0,6716 | Descartado |
+| Random Forest | 7.048,09 | 4.566,73 | 0,7518 | Descartado |
+| XGBoost (10 features, ADR-0009) | 6.085,26 | 3.777,90 | 0,8150 | Production anterior |
+| XGBoost v3 (profundidad 9) | 5.798 | 3.563 | 0,8320 | Re-medido; superado |
+| **XGBoost v3 + `model_base`** (ADR-0010) | **5.301,16** | **3.243,42** | **0,8596** | **Production — `ValorAuto_Model` v4 en DagsHub** |
+
+Experimentos que no mejoraron y quedaron documentados: `cylinders` numérico en vez de categórico (ADR-0009), `model` crudo con 20.439 categorías (ADR-0010). MLflow: run `a59552af758a44b38b425585bce8c3f9` en [DagsHub](https://dagshub.com/SNARF3/ValorAutoData.mlflow).
 
 <table>
 <tr>
 <td><img src="src/graphics/evaluacion/01_comparacion_modelos.png" alt="Comparación de métricas entre modelos" width="420"></td>
-<td><img src="src/graphics/evaluacion/02_predicho_vs_real_Model_XGBoost.png" alt="Predicho vs. real — XGBoost" width="420"></td>
-</tr>
-<tr>
-<td><img src="src/graphics/evaluacion/04_curva_aprendizaje_Model_XGBoost.png" alt="Curva de aprendizaje — XGBoost" width="420"></td>
-<td><img src="src/graphics/evaluacion/05_importancia_features_Model_XGBoost.png" alt="Importancia de features — XGBoost" width="420"></td>
+<td><img src="src/graphics/pipeline/resumen_precalculo.png" alt="Resumen del precálculo" width="420"></td>
 </tr>
 </table>
 
-Más gráficos (EDA, residuos, comparación por modelo) en [`src/graphics/`](src/graphics/): `eda/` (exploración del dataset), `evaluacion/` (métricas y diagnóstico del modelo), `pipeline/` (resumen del precálculo nocturno).
-
-**Limitación conocida:** el dataset es del mercado de EE. UU. (Craigslist), no del boliviano — el error reportado no necesariamente representa el error real prediciendo precios en Bolivia (riesgo **R2**, ver [`docs/risk-register.md`](docs/risk-register.md)).
-
-## Stack decidido
-
-| Capa | Tecnología | ADR |
-|---|---|---|
-| App móvil | React Native + Expo | [ADR-0002](docs/adr/0002-frontend-react-native-expo.md) |
-| Backend | Node.js + Express | [ADR-0001](docs/adr/0001-backend-nodejs-express.md) |
-| Visión | Google Gemini API | [ADR-0004](docs/adr/0004-gemini-vision-vs-modelo-propio.md) |
-| Modelo de precio | Scikit-Learn / XGBoost | [Evidencia de línea base](docs/evidence/baseline-modelo.md) |
-| Tracking / Registry | MLflow | [ADR-0005](docs/adr/0005-mlflow-tracking-model-registry.md) |
-| Precálculo (lectura rápida) | SQLite | [ADR-0007](docs/adr/0007-sqlite-lectura-rapida.md) |
-| Orquestación nocturna | cron / Airflow | [ADR-0003](docs/adr/0003-precalculo-nocturno-vs-tiempo-real.md) |
-| Versionamiento de datos | DVC + DagsHub | [ADR-0006](docs/adr/0006-dvc-dagshub-versionamiento-datos.md) |
-
-## Arquitectura
-
-Vista simplificada del sistema (diagramas C4 completos en [`docs/architecture/C4-ValorAuto.md`](docs/architecture/C4-ValorAuto.md)):
-
-```mermaid
-flowchart LR
-    Usuario(["Usuario"]) -->|"foto + km"| App["App móvil\nReact Native + Expo"]
-    App -->|"POST /tasacion"| API["Backend API\nNode.js + Express"]
-    API -->|foto| Gemini[["Google Gemini\n(API externa)"]]
-    Gemini -->|"marca/modelo/año"| API
-    API -->|consulta| DB[("Base de precálculo\nSQLite")]
-    DB -->|precio| API
-    API -->|"precio estimado"| App
-
-    Pipeline["Pipeline de ML\nsrc/model + src/pipeline"] -->|"entrena y registra"| MLflow[("MLflow\nModel Registry")]
-    MLflow -->|"modelo Production"| Pipeline
-    Pipeline -->|"escribe tabla de precios"| DB
-    DagsHub[["DVC + DagsHub"]] -.->|"dataset versionado"| Pipeline
-```
-
-El flujo de arriba (tasación en vivo) corre en milisegundos porque solo lee de la base de precálculo; el flujo de abajo (pipeline nocturno) es el que reentrena el modelo y regenera esa tabla.
+**Limitaciones declaradas** (ver el [risk register](docs/risk-register.md)):
+- El dataset es del mercado de EE. UU., no del boliviano (R2).
+- La exactitud de Gemini todavía no está medida con un golden set (R21).
+- El MVP corre con Docker Compose en una máquina del equipo, sin nube (R25).
 
 ## Estructura
 
-- [`docs/`](docs/) — documentación de equipo, arquitectura, ADRs, riesgos y evidencias. Ver [`docs/README.md`](docs/README.md).
-- [`data/`](data/) — datasets crudos y procesados (ver [`data/README.md`](data/README.md) para el estado de versionamiento).
-- [`src/`](src/) — componentes reutilizables: modelo de precio (`model/`, con `eda/` separado por tipo de exploración), precálculo nocturno (`pipeline/`), visión (`vision/`), API (`api/`), gráficos generados (`graphics/`). Ver [`src/README.md`](src/README.md).
-- [`notebooks/`](notebooks/) — notebooks delgados que orquestan las funciones de `src/` (`01_eda.ipynb`, `02_entrenamiento.ipynb`, `03_precalculo.ipynb`). Ver [ADR-0008](docs/adr/0008-separacion-componentes-notebooks-delgados.md).
-- [`app/`](app/) — app móvil (React Native + Expo). Ver [`app/README.md`](app/README.md).
-- [`openspec/`](openspec/) — specs versionadas de features (ej. `endpoint-tasacion-mvp`).
+- [`app/`](app/): app móvil (pantallas, componentes, cliente HTTP).
+- [`src/api/`](src/api/): API REST (rutas, controllers, middlewares, services, tests).
+- [`src/model/`](src/model/), [`src/pipeline/`](src/pipeline/): limpieza, features, entrenamiento, evaluación y precálculo.
+- [`scripts/`](scripts/): registro en MLflow, precálculo, reentrenamiento nocturno y `smoke_test.sh`.
+- [`notebooks/`](notebooks/): notebooks delgados que orquestan `src/` ([ADR-0008](docs/adr/0008-separacion-componentes-notebooks-delgados.md)).
+- [`tests/`](tests/): pruebas de ML (pytest) y [`tests/e2e/`](tests/e2e/) (Playwright).
+- [`openspec/`](openspec/): contratos versionados (`endpoint-tasacion-mvp`, `app-dos-flujos-tasacion`).
+- [`docs/`](docs/): arquitectura, ADRs (0001–0012), riesgos, evidencias, plan B y uso de IA.
 
 ## Documentación
 
-- [`docs/team_charter.md`](docs/team_charter.md) — equipo, canales, reglas de PR e integridad.
-- [`docs/priorizacion_casos.md`](docs/priorizacion_casos.md) — matriz de priorización de casos y justificación del Caso A.
-- [`docs/clickup_estructura.md`](docs/clickup_estructura.md) — estructura de ClickUp (listas, campos obligatorios, ejemplos de tarea).
-- [`docs/contexto/contexto_proyecto.md`](docs/contexto/contexto_proyecto.md) — Product Goal, calendario de sprints y backlog completo (22 historias de usuario).
-- [`docs/architecture/C4-ValorAuto.md`](docs/architecture/C4-ValorAuto.md) — diagramas C4 (contexto y contenedores) del sistema.
-- [`docs/architecture/secuencia-tasacion.md`](docs/architecture/secuencia-tasacion.md) — diagrama de secuencia de los dos flujos (tasación en vivo y pipeline nocturno).
-- [`docs/adr/`](docs/adr/) — Architecture Decision Records de cada elección de stack.
-- [`docs/crisp-mlq.md`](docs/crisp-mlq.md) — mapeo de las fases de CRISP-ML(Q) a la estructura del repo.
-- [`docs/risk-register.md`](docs/risk-register.md) — riesgos técnicos, de datos, de IA y operacionales, priorizados.
-- [`docs/uso-ia.md`](docs/uso-ia.md) — declaración de uso de IA generativa en el proyecto.
-- [`docs/evidence/`](docs/evidence/) — evidencia ejecutada (línea base del modelo, laboratorio de OpenSpec).
+- [`docs/architecture/C4-ValorAuto.md`](docs/architecture/C4-ValorAuto.md) y [`secuencia-tasacion.md`](docs/architecture/secuencia-tasacion.md): arquitectura vigente.
+- [`docs/adr/`](docs/adr/): decisiones de arquitectura, incluidas las exclusiones (RAG/agentes).
+- [`docs/risk-register.md`](docs/risk-register.md): riesgos y limitaciones (R1–R25).
+- [`docs/plan-b-demo.md`](docs/plan-b-demo.md): checklist previo y plan B de la demo.
+- [`docs/evidence/`](docs/evidence/): línea base del modelo e implementación del backend.
+- [`docs/team_charter.md`](docs/team_charter.md), [`docs/clickup_estructura.md`](docs/clickup_estructura.md), [`docs/uso-ia.md`](docs/uso-ia.md).
 
-Gestión de tareas en ClickUp: workspace **Tio Sam S.R.L**, carpeta **Tasador de Autos con IA — LAB_01 TSI**.
+## Acceso a DagsHub
 
-## Cómo reproducir el avance actual
-
-Requiere Docker y una cuenta con acceso al remoto de DagsHub del proyecto (ver nota de acceso más abajo).
-
-```bash
-git clone https://github.com/SNARF3/ValorAuto.git
-cd ValorAuto
-
-# Dataset (versionado con DVC, ver docs/adr/0006)
-pip install dvc
-dvc pull data/vehicles/vehicles_clean.csv.dvc
-
-# UI de MLflow (http://localhost:5001)
-docker compose up mlflow
-
-# Reentrena los 3 modelos (EDA -> entrenamiento -> precálculo) y regenera data/precalc.db
-docker compose run --rm training
-```
-
-Ambos servicios corren sobre la misma imagen (`docker/Dockerfile`) con el repo montado como volumen: lo que el contenedor escribe (`mlflow.db`, `mlruns/`, `data/precalc.db`, `src/graphics/`) queda directamente en esta carpeta. Detalle completo en [`src/README.md`](src/README.md#alternativa-mlflow-y-el-reentrenamiento-en-docker).
-
-**Nota de acceso a datos:** el remoto de DagsHub es `https://dagshub.com/SNARF3/ValorAutoData` (ver [ADR-0006](docs/adr/0006-dvc-dagshub-versionamiento-datos.md)). Si `dvc pull`/`dvc push` fallan con error de autenticación, configurá tu token de DagsHub localmente (nunca se commitea):
+Remoto de datos y MLflow: `https://dagshub.com/SNARF3/ValorAutoData` ([ADR-0006](docs/adr/0006-dvc-dagshub-versionamiento-datos.md)). Si `dvc pull` falla por autenticación, configura tu token localmente (nunca se commitea):
 
 ```bash
 dvc remote modify origin --local auth basic
 dvc remote modify origin --local user <tu-usuario-dagshub>
 dvc remote modify origin --local password <tu-token-dagshub>
 ```
-
-**MLflow remoto (opcional, resuelve R15):** por defecto MLflow usa el sqlite local (`mlflow.db`) dentro del contenedor y todo funciona igual. Para que las corridas (con sus artifacts) queden en el MLflow hospedado en DagsHub, copiá `.env.example` a `.env` en la raíz y completá tu usuario/token de DagsHub — ver [ADR-0005](docs/adr/0005-mlflow-tracking-model-registry.md).
-
-`src/api` (Node.js/Express) todavía no tiene código propio más allá del scaffold (`src/api/.gitkeep`) — corresponde a Sprint 4 del [backlog](docs/contexto/contexto_proyecto.md).
