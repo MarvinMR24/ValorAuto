@@ -8,6 +8,12 @@ FROM python:3.10-slim
 
 WORKDIR /app
 
+# Instalar dependencias del sistema necesarias para git, dvc y compilar extensiones si fuera necesario
+RUN apt-get update && apt-get install -y --no-install-recommends \
+    git \
+    curl \
+    && rm -rf /var/lib/apt/lists/*
+
 COPY requirements.txt .
 
 # mlflow se fija a la version exacta ya usada para generar mlflow.db
@@ -15,7 +21,8 @@ COPY requirements.txt .
 # puede pedir "mlflow db upgrade" o fallar al leer runs existentes. nbconvert
 # no esta en requirements.txt (gap real, ver docs/risk-register.md) pero hace
 # falta para ejecutar los notebooks sin abrir Jupyter.
+# Se instalan pytest y dagshub para testing y versionado reproducible con DVC y DagsHub.
 RUN pip install --no-cache-dir -r requirements.txt \
-    && pip install --no-cache-dir mlflow==3.16.1 nbconvert==7.16.4
+    && pip install --no-cache-dir mlflow==3.16.1 nbconvert==7.16.4 dagshub pytest
 
 EXPOSE 5000
