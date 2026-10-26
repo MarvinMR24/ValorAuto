@@ -2,7 +2,7 @@ import { describe, expect, it, beforeAll, afterAll } from 'bun:test';
 import { sqliteService } from '../services/sqlite.service.js';
 import { GeminiVisionService, geminiService } from '../services/gemini.service.js';
 import { cacheService } from '../services/cacheService.js';
-import { normalizeManufacturer, normalizeText, fuzzyMatch, normalizeVehicleType } from '../utils/normalizer.js';
+import { normalizeManufacturer, normalizeModel, normalizeText, fuzzyMatch, normalizeVehicleType } from '../utils/normalizer.js';
 import { server } from '../index.js';
 
 describe('ValorAuto API - Tests Unitarios e Integración', () => {
@@ -21,6 +21,16 @@ describe('ValorAuto API - Tests Unitarios e Integración', () => {
       expect(normalizeText('Camión 4x4!')).toBe('camion 4x4');
       expect(normalizeText('  TOYOTA   COROLLA  ')).toBe('toyota corolla');
       expect(normalizeText('Citroën')).toBe('citroen');
+    });
+
+    it('debe normalizar el modelo con la misma regla que el pipeline (model_base)', () => {
+      expect(normalizeModel('Silverado 1500 LTZ', 'chevrolet')).toBe('silverado');
+      expect(normalizeModel('F150 XLT', 'ford')).toBe('f-150');
+      expect(normalizeModel('Grand Cherokee Laredo', 'jeep')).toBe('grand cherokee');
+      expect(normalizeModel('Ram 1500', 'ram')).toBe('1500');
+      expect(normalizeModel('CR-V EX', 'honda')).toBe('cr-v');
+      expect(normalizeModel('Model 3', 'tesla')).toBe('model 3');
+      expect(normalizeModel('', 'toyota')).toBe('');
     });
 
     it('debe resolver alias automotrices comunes a sus marcas canónicas', () => {
@@ -99,6 +109,7 @@ describe('ValorAuto API - Tests Unitarios e Integración', () => {
     it('debe encontrar una combinación existente y calcular min/max con el MAE', async () => {
       const res = await sqliteService.queryPrice({
         manufacturer: 'Toyota',
+        model: 'Corolla LE',
         year: 2015,
         type: 'sedan',
         odometer: 52000, // Discretiza a 50000
@@ -107,9 +118,30 @@ describe('ValorAuto API - Tests Unitarios e Integración', () => {
       expect(res).not.toBeNull();
       expect(res.precio_estimado).toBe(13400);
       expect(res.rango_km).toBe(50000);
-      // MAE baseline es 3778
-      expect(res.precio_min).toBe(Math.max(0, 13400 - 3778));
-      expect(res.precio_max).toBe(13400 + 3778);
+      expect(res.coincidencia).toBe('modelo');
+      // MAE del modelo v3 + model_base es 3243
+      expect(res.precio_min).toBe(Math.max(0, 13400 - 3243));
+      expect(res.precio_max).toBe(13400 + 3243);
+    });
+
+    it('debe distinguir modelos de la misma marca, año y tipo (ADR-0010)', async () => {
+      const corolla = await sqliteService.queryPrice({ manufacturer: 'toyota', model: 'corolla', year: 2015, type: 'sedan', odometer: 50000 });
+      const camry = await sqliteService.queryPrice({ manufacturer: 'toyota', model: 'camry', year: 2015, type: 'sedan', odometer: 50000 });
+      expect(corolla.precio_estimado).toBe(13400);
+      expect(camry.precio_estimado).toBe(14900);
+    });
+
+    it('debe tratar truck y pickup como el mismo tipo al buscar por modelo', async () => {
+      const res = await sqliteService.queryPrice({ manufacturer: 'toyota', model: 'Tacoma TRD', year: 2015, type: 'truck', odometer: 50000 });
+      expect(res.coincidencia).toBe('modelo');
+      expect(res.precio_estimado).toBe(32100);
+    });
+
+    it('debe usar el promedio ponderado de marca+año+tipo si el modelo no está precalculado', async () => {
+      const res = await sqliteService.queryPrice({ manufacturer: 'toyota', model: 'supra', year: 2015, type: 'sedan', odometer: 50000 });
+      expect(res.coincidencia).toBe('marca_anio_tipo');
+      // (13400 * 107 + 14900 * 128) / (107 + 128)
+      expect(res.precio_estimado).toBe(Math.round(((13400 * 107 + 14900 * 128) / 235) * 100) / 100);
     });
 
     it('debe responder null (404) si el vehículo no existe en la base de precálculo', async () => {
@@ -319,8 +351,8 @@ describe('ValorAuto API - Tests Unitarios e Integración', () => {
         expect(data.modelo).toBe('corolla');
         expect(data.anio).toBe(2015);
         expect(data.precio_estimado).toBe(13400);
-        expect(data.precio_min).toBe(9622);
-        expect(data.precio_max).toBe(17178);
+        expect(data.precio_min).toBe(10157);
+        expect(data.precio_max).toBe(16643);
 
         // Verificación de observabilidad y métricas
         expect(data._metricas).toBeDefined();

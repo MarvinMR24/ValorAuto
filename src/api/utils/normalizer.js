@@ -139,6 +139,53 @@ export function normalizeManufacturer(manufacturer, knownManufacturers = []) {
   return aliased;
 }
 
+// Espejo exacto de MODELO_PREFIJOS_DOS_PALABRAS / MODELO_ALIASES en src/model/config.py (ADR-0010)
+export const MODEL_TWO_WORD_PREFIXES = new Set(['grand', 'town', 'range', 'santa', 'land', 'model']);
+export const MODEL_ALIASES = {
+  f150: 'f-150',
+  f250: 'f-250',
+  f350: 'f-350',
+  crv: 'cr-v',
+  hrv: 'hr-v',
+  'rav-4': 'rav4',
+};
+
+/**
+ * Reduce el modelo devuelto por Gemini a su modelo base, con la MISMA regla que
+ * usó el pipeline para la columna `model_base` de precalc.db
+ * (src/model/features.py -> normalizar_modelo). Si se cambia allá, cambiar acá.
+ *
+ * @param {string} model - Modelo (ej: 'Silverado 1500 LTZ', 'F150')
+ * @param {string} [manufacturer] - Marca, para quitarla si viene al inicio ('ram 1500' -> '1500')
+ * @returns {string} Modelo base (ej: 'silverado', 'f-150') o '' si no hay
+ */
+export function normalizeModel(model, manufacturer = '') {
+  if (!model || typeof model !== 'string') return '';
+  let tokens = model.toLowerCase().replace(/[^a-z0-9\- ]/g, ' ').split(/\s+/).filter(Boolean);
+  if (manufacturer && tokens[0] === String(manufacturer).toLowerCase()) {
+    tokens = tokens.slice(1);
+  }
+  if (tokens.length === 0) return '';
+  let base = tokens[0];
+  if (MODEL_TWO_WORD_PREFIXES.has(base) && tokens.length > 1) {
+    base = `${base} ${tokens[1]}`;
+  }
+  return MODEL_ALIASES[base] || base;
+}
+
+/**
+ * Tipos de carrocería equivalentes en precalc.db para un tipo normalizado.
+ * El dataset de Craigslist mezcla 'truck' y 'pickup' para lo mismo.
+ *
+ * @param {string|null} type - Tipo ya normalizado con normalizeVehicleType
+ * @returns {string[]}
+ */
+export function vehicleTypeCandidates(type) {
+  if (!type) return [];
+  if (type === 'truck') return ['truck', 'pickup'];
+  return [type];
+}
+
 /**
  * Normaliza el tipo de carrocería aplicando alias y limpieza.
  *

@@ -41,8 +41,9 @@ export const config = {
     odometerRanges: [10000, 50000, 100000, 150000, 200000],
   },
   model: {
-    // MAE reportado en la línea base de producción (docs/evidence/baseline-modelo.md)
-    baselineMae: parseFloat(process.env.BASELINE_MAE || '3778'),
+    // MAE del modelo con el que se generó precalc.db (XGBoost v3 + model_base, ADR-0010;
+    // scripts/recalc_precalc_db.py lo imprime). Ver docs/evidence/baseline-modelo.md
+    baselineMae: parseFloat(process.env.BASELINE_MAE || '3243'),
   },
   upload: {
     maxFileSizeBytes: 5 * 1024 * 1024, // 5 MB según especificaciones de seguridad

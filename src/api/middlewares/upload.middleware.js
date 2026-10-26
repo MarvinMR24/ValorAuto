@@ -5,7 +5,15 @@ import { config } from '../config/config.js';
 // sin dejar archivos residuales en disco (ideal para microservicios / contenedores sin estado).
 const storage = multer.memoryStorage();
 
+const MIME_POR_EXTENSION = { jpg: 'image/jpeg', jpeg: 'image/jpeg', png: 'image/png', webp: 'image/webp' };
+
 const fileFilter = (req, file, cb) => {
+  // Algunos clientes móviles (expo/fetch) pueden mandar la parte sin Content-Type:
+  // en ese caso se deduce el tipo por la extensión del nombre de archivo.
+  if (!file.mimetype || file.mimetype === 'application/octet-stream') {
+    const extension = (file.originalname || '').split('.').pop()?.toLowerCase();
+    file.mimetype = MIME_POR_EXTENSION[extension] || file.mimetype;
+  }
   if (config.upload.allowedMimeTypes.includes(file.mimetype)) {
     cb(null, true);
   } else {

@@ -33,14 +33,14 @@ Este es el borrador inicial tal como se plantea en `README.md` y `app/README.md`
 
 | # | Resolución propuesta | Alcance |
 |---|---|---|
-| A1 | Gemini debe devolver JSON estricto `{marca, modelo, anio, confianza}`. Si el JSON no valida contra ese esquema, `src/api` responde `422` con `error: "vision_format_error"` y no se llama al modelo de precio. | MVP |
+| A1 | *(Ajustado en Build: claves en inglés `{manufacturer, model, year, type, confidence}`, ver spec.)* Gemini debe devolver JSON estricto `{marca, modelo, anio, confianza}`. Si el JSON no valida contra ese esquema, `src/api` responde `422` con `error: "vision_format_error"` y no se llama al modelo de precio. | MVP |
 | A2 | El MVP solo consulta la tabla precalculada. Si la combinación no existe, se responde `404` con `error: "combinacion_no_precalculada"` (sin cálculo en vivo). Cálculo en vivo queda fuera de alcance de este REQ. | MVP — fallback en vivo es un REQ futuro |
 | A3 | Si `confianza` de Gemini está bajo un umbral (propuesto: 0.6) o el JSON no identifica un vehículo, se responde `422` con `error: "vehiculo_no_identificado"`. | MVP |
-| A4 | Timeout de 10s a la llamada a Gemini; ante timeout o error 5xx se responde `503` con `error: "vision_no_disponible"`. Sin reintentos automáticos en el MVP. | MVP |
-| A5 | Kilometraje válido: entero, `0 <= km <= 1,000,000`. Fuera de rango → `400` con `error: "kilometraje_invalido"`. | MVP |
-| A6 | Una sola imagen por request, formatos `jpg/png`, máx. 8 MB. Fuera de esos límites → `400` con `error: "imagen_invalida"`. | MVP |
+| A4 | *(Ajustado en Build: 25 s por defecto, configurable con `VISION_TIMEOUT_MS`.)* Timeout de 10s a la llamada a Gemini; ante timeout o error 5xx se responde `503` con `error: "vision_no_disponible"`. Sin reintentos automáticos en el MVP. | MVP |
+| A5 | *(Ajustado en Build: máximo 500,000.)* Kilometraje válido: entero, `0 <= km <= 1,000,000`. Fuera de rango → `400` con `error: "kilometraje_invalido"`. | MVP |
+| A6 | *(Ajustado en Build: `jpg/png/webp`, máx. 5 MB.)* Una sola imagen por request, formatos `jpg/png`, máx. 8 MB. Fuera de esos límites → `400` con `error: "imagen_invalida"`. | MVP |
 | A7 | Una sola foto por request en el MVP (no se soportan múltiples ángulos). Multi-foto queda como mejora futura. | MVP |
-| A8 | El endpoint devuelve un valor puntual (`precio_estimado`) más un rango de referencia (`precio_min`, `precio_max`) calculado a partir del error del modelo (MAE), no un solo número sin contexto. | MVP |
+| A8 | *(Build: MAE = 3,243 USD del modelo con `model_base`, ADR-0010.)* El endpoint devuelve un valor puntual (`precio_estimado`) más un rango de referencia (`precio_min`, `precio_max`) calculado a partir del error del modelo (MAE), no un solo número sin contexto. | MVP |
 | A9 | Sin autenticación en el MVP (endpoint público); se revisita si el caso pasa a producción real. | MVP — riesgo aceptado y registrado |
 | A10 | SLA propuesto: p95 < 5s incluyendo la llamada a Gemini. Si no se cumple en pruebas de QA, se documenta como riesgo, no bloquea el MVP. | MVP |
 

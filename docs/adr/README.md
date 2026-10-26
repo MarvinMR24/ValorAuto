@@ -13,3 +13,5 @@ Registro de decisiones técnicas del proyecto, con las alternativas descartadas 
 | [0007](0007-sqlite-lectura-rapida.md) | SQLite como base de lectura rápida del precálculo (no Redis, por ahora) | Aceptada |
 | [0008](0008-separacion-componentes-notebooks-delgados.md) | Separación código/orquestación: componentes en `src/`, notebooks delgados en `notebooks/` | Aceptada |
 | [0009](0009-features-condition-cylinders-size.md) | Agregar `condition`, `cylinders` y `size` como features del modelo (validado empíricamente) | Aceptada |
+| [0010](0010-model-base-feature-y-busqueda-por-modelo.md) | `model_base` como feature y clave de búsqueda del precálculo; piso de precio de 500 USD | Aceptada |
+| [0011](0011-gemini-checklist-inspeccion.md) | Gemini también genera el checklist de inspección (texto, nunca precios), con respaldo genérico | Aceptada |

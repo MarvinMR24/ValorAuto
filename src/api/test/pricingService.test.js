@@ -16,8 +16,8 @@ describe('PricingService - Módulo de Integración para Modelo de Precios', () =
     expect(result).not.toBeNull();
     expect(result.precio_estimado).toBe(13400);
     expect(result.fuente).toBe('sqlite_precalculo');
-    expect(result.precio_min).toBe(9622);
-    expect(result.precio_max).toBe(17178);
+    expect(result.precio_min).toBe(10157);
+    expect(result.precio_max).toBe(16643);
   });
 
   it('debe responder null si el auto no está precalculado y el fallback está inactivo (modo estricto ADR-0003)', async () => {

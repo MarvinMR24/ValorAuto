@@ -88,8 +88,7 @@ def main():
     mlflow.set_experiment(config.MLFLOW_EXPERIMENT_NAME)
 
     print("Cargando dataset...")
-    cols = config.FEATURES + [config.TARGET]
-    df_clean = pd.read_csv(config.DATA_CLEAN_PATH, usecols=cols)
+    df_clean = pd.read_csv(config.DATA_CLEAN_PATH)
     X_train, X_test, y_train, y_test = features.split_data(df_clean)
     preprocessor = features.build_preprocessor()
 
@@ -181,7 +180,7 @@ def main():
 
         # Regenerar la base de datos precalculada con el nuevo mejor modelo
         print("\nRegenerando tabla SQLite precalculada con el nuevo mejor modelo...")
-        df_comb = combinations.generar_todas_las_combinaciones()
+        df_comb = combinations.generar_combinaciones(df_clean)
         df_res = precalculo.calcular_precios(best["pipeline"], df_comb)
         precalculo.guardar_sqlite(df_res)
         print("Base de datos data/precalc.db actualizada con éxito.")
