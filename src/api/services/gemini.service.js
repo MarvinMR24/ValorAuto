@@ -2,6 +2,7 @@ import dns from 'node:dns';
 import { GoogleGenAI } from '@google/genai';
 import { config } from '../config/config.js';
 import { cacheService } from './cacheService.js';
+import { optimizeImageBuffer } from '../middlewares/upload.middleware.js';
 import {
   normalizeManufacturer,
   normalizeText,
@@ -14,6 +15,11 @@ import { logger } from '../utils/logger.js';
 if (typeof dns.setDefaultResultOrder === 'function') {
   dns.setDefaultResultOrder('ipv4first');
 }
+
+// Prompt conciso de baja latencia para clasificación visual (ADR-0004: sin estimación de precios)
+const SYSTEM_PROMPT = `Clasifica el automóvil de la imagen y responde ÚNICAMENTE un JSON válido:
+{"manufacturer":"marca en minúsculas","model":"modelo en minúsculas","year":2020,"type":"sedan|suv|truck|coupe|hatchback|van|wagon|convertible","condition":"excellent|like new|good|fair|salvage","confidence":0.95}
+Reglas: "year" entero de 4 dígitos. PROHIBIDO calcular o mencionar precios (ADR-0004). Si no es un auto, usa "confidence":0.0.`;
 
 const VALID_GEMINI_IMAGE_MIMES = new Set([
   'image/jpeg',
@@ -274,17 +280,23 @@ export class GeminiVisionService {
     const startTime = performance.now();
 
     // 1. Limpiar base64 (remover "data:image/...;base64," si existe) y validar mimeType exacto
-    const { cleanBase64, binaryBuffer, extractedMimeType } = this._cleanImageBase64(imageBuffer);
+    const { binaryBuffer, extractedMimeType } = this._cleanImageBase64(imageBuffer);
     const validatedMimeType = this._validateAndNormalizeMimeType(
       mimeType,
       binaryBuffer,
       extractedMimeType
     );
 
-    // 2. Cálculo del hash criptográfico SHA-256 para el sistema de caching
+    // 2. Optimizar buffer en memoria (redimensionar a máx 800px y comprimir JPEG) para reducir latencia a < 3s
+    const { optimizedBuffer, optimizedMimeType } = await optimizeImageBuffer(
+      binaryBuffer,
+      validatedMimeType
+    );
+
+    // 3. Cálculo del hash criptográfico SHA-256 para el sistema de caching
     const imageHash = this.cache.generateImageHash(binaryBuffer);
 
-    // 3. Comprobación en caché en memoria (LRU Cache)
+    // 4. Comprobación en caché en memoria (LRU Cache)
     if (imageHash) {
       const cachedResult = this.cache.get(imageHash);
       if (cachedResult) {
@@ -302,7 +314,7 @@ export class GeminiVisionService {
       }
     }
 
-    // 4. Verificación de credenciales en vivo (SIN modo demo ni datos simulados - ADR-0004)
+    // 5. Verificación de credenciales en vivo (SIN modo demo ni datos simulados - ADR-0004)
     if (!this.ai && config.geminiApiKey) {
       this.ai = new GoogleGenAI({
         apiKey: config.geminiApiKey,
@@ -316,25 +328,6 @@ export class GeminiVisionService {
       err.statusCode = 503;
       throw err;
     }
-
-    const promptText = `
-Actúa como un clasificador visual experto de vehículos para el sistema ValorAuto.
-Analiza detenidamente la fotografía adjunta y extrae únicamente los metadatos de identificación del automóvil.
-
-REGLAS ESTRICTAS DE RESPUESTA:
-1. Responde ÚNICAMENTE un objeto JSON válido, sin delimitadores adicionales de markdown ni texto introductorio.
-2. Formato exacto requerido ("year" DEBE ser un único número entero de 4 dígitos, ej: 2020, NUNCA un rango):
-{
-  "manufacturer": "marca en minúsculas (ej: toyota, ford, chevrolet, honda, bmw, mercedes-benz)",
-  "model": "modelo en minúsculas (ej: corolla, civic, f-150, camry, hilux)",
-  "year": 2020,
-  "type": "tipo de carrocería en minúsculas (sedan, suv, truck, coupe, hatchback, van, wagon, convertible)",
-  "condition": "estado estético estimado según la foto (excellent, like new, good, fair, salvage)",
-  "confidence": 0.95
-}
-3. REGLA FUNDAMENTAL DE ARQUITECTURA (ADR-0004): NO calcules, predigas, estimes, sugieras ni menciones precios bajo ninguna circunstancia. El precio lo calcula siempre el modelo propio, nunca Gemini.
-4. Si la imagen NO corresponde a un automóvil, es ilegible, borrosa o no es posible determinar la marca y modelo con certeza, asigna "confidence": 0.0 o valores null.
-`.trim();
 
     let timerId = null;
     const timeoutPromise = new Promise((_, reject) => {
@@ -358,6 +351,8 @@ REGLAS ESTRICTAS DE RESPUESTA:
 
       for (const modelToUse of highQuotaModels) {
         try {
+          // OPTIMIZACIÓN 1: Prohibido descomponer la imagen como texto en el prompt.
+          // Se envía exclusivamente como objeto multimodal nativo inlineData dentro de contents.
           const response = await this.ai.models.generateContent({
             model: modelToUse,
             contents: [
@@ -366,19 +361,18 @@ REGLAS ESTRICTAS DE RESPUESTA:
                 parts: [
                   {
                     inlineData: {
-                      data: cleanBase64,
-                      mimeType: validatedMimeType,
+                      mimeType: optimizedMimeType,
+                      data: optimizedBuffer.toString('base64'),
                     },
                   },
-                  {
-                    text: promptText,
-                  },
+                  { text: SYSTEM_PROMPT },
                 ],
               },
             ],
             config: {
               responseMimeType: 'application/json',
-              temperature: 0.1,
+              temperature: config.gemini.temperature ?? 0.1,
+              maxOutputTokens: config.gemini.maxOutputTokens ?? 200,
             },
           });
 
