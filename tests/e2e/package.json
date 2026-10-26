@@ -1,0 +1,13 @@
+{
+  "name": "valorauto-e2e",
+  "private": true,
+  "type": "module",
+  "description": "Pruebas E2E de ValorAuto: app (build web) + API + Gemini + precalc.db",
+  "scripts": {
+    "test": "playwright test",
+    "build:app": "cd ../../app && EXPO_PUBLIC_API_URL=${API_URL:-http://localhost:3000} npx expo export --platform web --output-dir ../tests/e2e/.web-build"
+  },
+  "devDependencies": {
+    "@playwright/test": "1.63.0"
+  }
+}

@@ -19,3 +19,14 @@ node_modules/
 
 scripts/.last_dataset_hash
 scripts/nightly_retrain.log
+# Salidas generadas por herramientas locales (grafos de código, exportes de Claude): no se versionan
+graphify-out/
+Claude outputs/
+
+# Artefactos de las pruebas E2E (tests/e2e)
+tests/e2e/.web-build/
+tests/e2e/reporte/
+tests/e2e/test-results/
+
+# Material del curso (no se versiona)
+docs/Guia_de_Defensa_del_MVP.pdf

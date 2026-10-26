@@ -1,4 +1,5 @@
 import { sqliteService } from './sqlite.service.js';
+import { geminiService } from './gemini.service.js';
 import { config } from '../config/config.js';
 import { normalizeManufacturer, normalizeVehicleType } from '../utils/normalizer.js';
 
@@ -10,7 +11,9 @@ import { normalizeManufacturer, normalizeVehicleType } from '../utils/normalizer
  *
  * Arquitectura (ADR-0001, ADR-0003, ADR-0007):
  * 1. Consulta primaria: Tabla de precios precalculados en SQLite (data/precalc.db).
- * 2. Comportamiento provisional / Mock: Estimación basada en depreciación heurística
+ * 2. Respaldo: si el modelo exacto no está precalculado, Gemini estima el precio de
+ *    mercado en EE. UU. (USD); si Gemini falla, promedio precalculado de marca+año.
+ * 3. Comportamiento provisional / Mock: Estimación basada en depreciación heurística
  *    cuando la base de precálculo aún no incluye la combinación solicitada o está en desarrollo.
  *
  * // TODO: Punto de integración para el modelo de ML / SQLite de producción
@@ -20,6 +23,9 @@ import { normalizeManufacturer, normalizeVehicleType } from '../utils/normalizer
 export class PricingService {
   constructor() {
     this.sqliteService = sqliteService;
+    this.geminiService = geminiService;
+    // Respaldo con Gemini cuando el modelo no está precalculado (PRICE_GEMINI_FALLBACK=false lo apaga)
+    this.allowGeminiFallback = process.env.PRICE_GEMINI_FALLBACK !== 'false';
     this.baselineMae = config.model?.baselineMae || 3243;
     // Permite activar o desactivar el mock fallback (útil para pruebas y desarrollo continuo)
     this.allowMockFallback = process.env.ALLOW_PRICE_FALLBACK === 'true' || process.env.NODE_ENV === 'test_fallback';
@@ -52,34 +58,75 @@ export class PricingService {
     // --------------------------------------------------------------------------
     // 1. ESTRATEGIA PRINCIPAL: Consulta a la base de precálculo SQLite (ADR-0003, ADR-0007)
     // --------------------------------------------------------------------------
+    let sqliteResult = null;
     try {
-      const sqliteResult = await this.sqliteService.queryPrice({
+      sqliteResult = await this.sqliteService.queryPrice({
         manufacturer: normManufacturer,
         model: normModel,
         year: normYear,
         type: normType,
         odometer: normOdometer,
       });
-
-      if (sqliteResult) {
-        const pricingDurationMs = Math.round((performance.now() - startTime) * 100) / 100;
-        return {
-          precio_estimado: sqliteResult.precio_estimado,
-          precio_min: sqliteResult.precio_min,
-          precio_max: sqliteResult.precio_max,
-          rango_km: sqliteResult.rango_km,
-          coincidencia: sqliteResult.coincidencia,
-          fuente: 'sqlite_precalculo',
-          pricingDurationMs,
-          detalles: sqliteResult.detalles,
-        };
-      }
     } catch (err) {
       console.warn(`[PricingService] Fallo al consultar SQLite precalculado: ${err.message}`);
     }
 
+    const desdeSqlite = () => ({
+      precio_estimado: sqliteResult.precio_estimado,
+      precio_min: sqliteResult.precio_min,
+      precio_max: sqliteResult.precio_max,
+      rango_km: sqliteResult.rango_km,
+      coincidencia: sqliteResult.coincidencia,
+      fuente: 'sqlite_precalculo',
+      pricingDurationMs: Math.round((performance.now() - startTime) * 100) / 100,
+      detalles: sqliteResult.detalles,
+    });
+
+    // El modelo exacto está precalculado: siempre gana
+    if (sqliteResult?.coincidencia === 'modelo') {
+      return desdeSqlite();
+    }
+
     // --------------------------------------------------------------------------
-    // 2. // TODO: Punto de integración para el modelo de ML / SQLite de producción
+    // 2. RESPALDO: el modelo no está precalculado -> se pregunta a Gemini el precio
+    //    de mercado en EE. UU. (USD), el mismo mercado del dataset de Craigslist.
+    // --------------------------------------------------------------------------
+    if (this.allowGeminiFallback && normModel) {
+      const rangoKm = this.sqliteService.discretizeOdometer(normOdometer);
+      const gemini = await this.geminiService.estimateUsMarketPrice({
+        marca: normManufacturer,
+        modelo: normModel,
+        anio: normYear,
+        kilometraje: normOdometer,
+        rangoKm,
+        tipo: normType,
+      });
+
+      if (gemini) {
+        const pricingDurationMs = Math.round((performance.now() - startTime) * 100) / 100;
+        return {
+          ...gemini,
+          rango_km: rangoKm,
+          coincidencia: 'gemini',
+          fuente: 'gemini_estimacion',
+          pricingDurationMs,
+          detalles: {
+            mercado: 'EE. UU. (USD)',
+            nota: 'Modelo no precalculado: estimación de Gemini, no del modelo propio.',
+          },
+        };
+      }
+    }
+
+    // --------------------------------------------------------------------------
+    // 3. Si Gemini no responde, se usa el promedio precalculado de marca+año(+tipo)
+    // --------------------------------------------------------------------------
+    if (sqliteResult) {
+      return desdeSqlite();
+    }
+
+    // --------------------------------------------------------------------------
+    // 4. // TODO: Punto de integración para el modelo de ML / SQLite de producción
     //    Aquí se integrará la inferencia directa del modelo XGBoost/Scikit-Learn
     //    (ej. cliente gRPC/HTTP a servicio Python o runner ONNX local).
     // --------------------------------------------------------------------------
@@ -90,7 +137,7 @@ export class PricingService {
     }
 
     // --------------------------------------------------------------------------
-    // 3. COMPORTAMIENTO PROVISIONAL (Mock Heurístico de desarrollo)
+    // 5. COMPORTAMIENTO PROVISIONAL (Mock Heurístico de desarrollo)
     //    Calcula un valor referencial coherente con las curvas del dataset de Craigslist
     //    para permitir que el backend y frontend funcionen de punta a punta.
     // --------------------------------------------------------------------------

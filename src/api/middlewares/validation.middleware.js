@@ -144,8 +144,17 @@ export function validateImagenSolo(req, res, next) {
   next();
 }
 
+// Marca y modelo terminan dentro del prompt de Gemini (GET /revision): solo se aceptan
+// caracteres de nombres de vehículos, para que no puedan colarse instrucciones (prompt injection).
+const CARACTERES_VEHICULO = /^[\p{L}\p{N} .&'-]+$/u;
+
 const textoRequerido = (campo) =>
-  z.string({ message: `El campo ${campo} es obligatorio.` }).trim().min(1, `El campo ${campo} es obligatorio.`).max(60);
+  z
+    .string({ message: `El campo ${campo} es obligatorio.` })
+    .trim()
+    .min(1, `El campo ${campo} es obligatorio.`)
+    .max(40, `El campo ${campo} es demasiado largo.`)
+    .regex(CARACTERES_VEHICULO, `El campo ${campo} solo puede tener letras, números, espacios y . - & '`);
 
 const anioActual = new Date().getFullYear() + 1;
 

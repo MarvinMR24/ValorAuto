@@ -1,66 +1,72 @@
 # Diagrama de Secuencia — Tasación de Autos con IA
 
-Este documento detalla el diagrama de secuencia del **Caso A: Tasador de Autos con IA**, mostrando la coordinación entre el servicio de tasación en tiempo real y el proceso de precálculo/reentrenamiento nocturno. Para el diagrama de componentes (C4), ver [`C4-ValorAuto.md`](C4-ValorAuto.md).
+Secuencia real del MVP (2026-10-26): los dos flujos de la app, el manejo de errores de Gemini y el pipeline que deja los precios precalculados. Para la vista de contenedores y componentes ver [`C4-ValorAuto.md`](C4-ValorAuto.md). Contratos: [`specs/tasacion`](../../openspec/changes/endpoint-tasacion-mvp/specs/tasacion/spec.md) y [`specs/app-tasacion`](../../openspec/changes/app-dos-flujos-tasacion/specs/app-tasacion/spec.md).
 
-> Nota: esta versión corrige el diagrama original, que todavía mencionaba Streamlit y FastAPI. El stack decidido y vigente (ver [ADR-0001](../adr/0001-backend-nodejs-express.md) y [ADR-0002](../adr/0002-frontend-react-native-expo.md)) es **React Native + Expo** para la interfaz y **Node.js/Express** para el backend.
+## Flujo 1 — Tasación desde la app
 
-## Código PlantUML
+```mermaid
+sequenceDiagram
+    autonumber
+    actor U as Usuario
+    participant App as App (Expo Go)
+    participant API as API (Bun/Express)
+    participant G as Gemini
+    participant DB as precalc.db
 
-Puedes usar el siguiente código en cualquier renderizador de PlantUML (como PlantText o extensiones de VS Code) para visualizar el diagrama.
+    U->>App: Abre la app y elige un flujo
+    App->>API: GET /catalogo
+    API->>DB: marcas y modelos por popularidad
+    API-->>App: {marcas, modelos, anio_min, anio_max}
 
-```plantuml
-@startuml
-skinparam style strictuml
-skinparam maxMessageSize 150
+    alt "Usar una foto"
+        U->>App: Toma o elige una foto
+        App->>App: Achica la foto a 1280 px (JPEG 0.7)
+        App->>API: POST /identificar (multipart, campo imagen)
+        API->>API: Valida tamaño/tipo, sharp → 800 px, magic bytes, caché SHA-256
+        API->>G: imagen + prompt (JSON estricto, sin precios)
+        alt Modelo principal saturado (429/503)
+            API->>G: Reintento único con el modelo de respaldo
+        end
+        G-->>API: {manufacturer, model, year, type, confidence}
+        API-->>App: 200 {marca, modelo, anio, tipo, confianza} o 400/422/503
+        App->>U: Prellena el formulario (editable) o muestra el error
+    end
 
-actor "Usuario" as user
-participant "App Móvil\n(React Native + Expo)" as ui
-participant "Backend API\n(Node.js/Express)" as api
-participant "Componente de Visión\n(API de Gemini)" as gemini
-participant "Modelo ML Propio\n(Scikit-Learn/XGBoost)" as ml
-database "Base de Precálculo\n(SQLite)" as db
-actor "Orquestador\n(cron/Airflow)" as airflow
+    U->>App: Revisa o completa marca, modelo, año y km → "Ver precio"
+    App->>API: POST /tasacion/datos {marca, modelo, anio, kilometraje, tipo?}
+    API->>API: Zod: km 0..500.000, año válido, marca/modelo sin caracteres de instrucciones
+    API->>DB: (marca, model_base, año, km≈) → si no hay: promedio marca+año(+tipo)
+    API-->>App: 200 {precio_estimado, precio_min, precio_max, coincidencia} o 404
+    App->>U: Precio y rango (nota si es "precio de referencia")
 
-== Flujo 1: Tasación en Tiempo Real ==
-user -> ui : Sube foto del auto e ingresa kilometraje
-ui -> api : POST /tasacion (foto, kilometraje)
-activate api
-
-api -> gemini : Envía foto para extracción de características
-activate gemini
-gemini --> api : Retorna clasificación (marca, modelo, año, confianza)
-deactivate gemini
-
-api -> db : Consulta combinación (marca, modelo, año, rango_km)
-activate db
-db --> api : Retorna precio_estimado / precio_min / precio_max
-deactivate db
-
-api --> ui : Devuelve tasación final
-deactivate api
-ui --> user : Muestra precio estimado en pantalla
-
-== Flujo 2: Pipeline Nocturno (Precálculo y MLOps) ==
-airflow -> ml : Dispara pipeline de entrenamiento/precálculo (3:00 AM)
-activate airflow
-activate ml
-ml -> ml : Calcula métricas de error (MAE/RMSE/R2) y registra en MLflow
-ml --> db : Actualiza la tabla de precios precalculada
-deactivate ml
-deactivate airflow
-
-@enduml
+    App->>API: GET /revision?marca&modelo&anio
+    API->>G: prompt de texto con el vehículo delimitado como dato
+    G-->>API: {fallas_comunes, revisar_primero}
+    API->>API: Valida el esquema y descarta ítems que mencionen precios o dinero
+    API-->>App: 200 {…, fuente: "gemini" | "generico"} (siempre 200)
+    App->>U: Fallas comunes y qué revisar primero · botón Volver
 ```
 
-## Detalles del flujo del sistema
+## Flujo 2 — Pipeline de ML (a demanda; el cron nocturno no está desplegado)
 
-### 1. Tasación en tiempo real (síncrono)
+```mermaid
+sequenceDiagram
+    autonumber
+    actor Dev as Equipo
+    participant T as Contenedor training
+    participant D as DagsHub (DVC + MLflow)
+    participant DB as precalc.db
 
-- **Interacción inicial:** el usuario interactúa con la app móvil (React Native + Expo), proporcionando los inputs requeridos: una fotografía del vehículo y su kilometraje.
-- **Procesamiento de visión:** el backend (Node.js/Express) recibe la petición y delega la imagen a la API de Gemini, que actúa exclusivamente como clasificador visual para extraer atributos clave (marca, modelo, año). Ver [ADR-0004](../adr/0004-gemini-vision-vs-modelo-propio.md).
-- **Consulta de precio:** una vez que el backend tiene los atributos visuales y el kilometraje, consulta la tabla de precálculo en SQLite (no ejecuta el modelo en vivo). Ver [ADR-0003](../adr/0003-precalculo-nocturno-vs-tiempo-real.md).
+    Dev->>T: docker compose run --rm training python3 -m scripts.sync_dagshub_model
+    T->>D: dvc pull (vehicles_clean.csv, 352.005 filas)
+    T->>T: split 80/20 (seed 42), model_base, XGBoost v3
+    T->>D: log de métricas (RMSE/MAE/R²) + modelo
+    T->>D: create_model_version → v4 → Production (archiva la anterior)
+    T->>DB: mismo pipeline → 80.520 combinaciones, piso US$ 500, swap atómico
+    Note over DB: El API la lee en modo solo lectura (reiniciar el contenedor tras regenerar)
+```
 
-### 2. Precálculo y MLOps nocturno (asíncrono)
+## Detalles
 
-- **Orquestación:** usando cron o Airflow, el sistema automatiza un trabajo en segundo plano para procesar datos fuera del horario pico (3:00 AM).
-- **Actualización:** este flujo reentrena/compara modelos, calcula métricas medibles (MAE/RMSE/R2) registradas en MLflow (ver [ADR-0005](../adr/0005-mlflow-tracking-model-registry.md)), promueve el mejor modelo a "Production", y regenera la tabla de precios en SQLite para el día siguiente.
+- **Tasación (síncrona):** el precio nunca lo calcula Gemini ni un modelo en vivo. Sale de `precalc.db` (ADR-0003, ADR-0004). Gemini solo identifica el auto y genera el texto de la revisión. Si falla, el usuario sigue con "Ingresar datos" y la revisión cae al checklist genérico.
+- **Pipeline (asíncrono):** `scripts/nightly_retrain.py` está listo para correr cada noche (solo reentrena si cambió el hash del dataset), pero hoy no hay un servidor 24/7 que lo agende. Mientras tanto se ejecuta a demanda con el comando de arriba.

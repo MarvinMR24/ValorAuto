@@ -12,3 +12,5 @@ const dbPath = path.join(os.tmpdir(), `valorauto-test-${process.pid}.db`);
 seedDemoDb(dbPath);
 process.env.DB_PATH = dbPath;
 process.env.NODE_ENV = process.env.NODE_ENV || 'test';
+// Sin precios de Gemini en la suite (los tests de PricingService lo activan con un stub)
+process.env.PRICE_GEMINI_FALLBACK = 'false';
