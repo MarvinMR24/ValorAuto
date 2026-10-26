@@ -1,0 +1,4 @@
+# Carpetas nativas generadas por `npx expo run` / `expo prebuild` (CNG): no se versionan,
+# se regeneran desde app.json. Con Expo Go no hacen falta.
+/ios
+/android

@@ -172,6 +172,140 @@ Recibe la imagen de un vehículo y su kilometraje actual.
         },
       },
     },
+    '/tasacion/datos': {
+      post: {
+        tags: ['Tasación'],
+        summary: 'Tasar con datos ingresados a mano (sin foto)',
+        description: 'Flujo "Ingresar datos" de la app. Mismo contrato de respuesta que POST /tasacion, sin llamar a Gemini (confianza_vision = null).',
+        requestBody: {
+          required: true,
+          content: {
+            'application/json': {
+              schema: {
+                type: 'object',
+                required: ['marca', 'modelo', 'anio', 'kilometraje'],
+                properties: {
+                  marca: { type: 'string', example: 'toyota' },
+                  modelo: { type: 'string', example: 'corolla' },
+                  anio: { type: 'integer', example: 2015 },
+                  kilometraje: { type: 'integer', minimum: 0, maximum: 500000, example: 52000 },
+                  tipo: { type: 'string', nullable: true, example: 'sedan' },
+                },
+              },
+            },
+          },
+        },
+        responses: {
+          200: { description: 'Tasación exitosa', content: { 'application/json': { schema: { $ref: '#/components/schemas/TasacionResponse' } } } },
+          400: { description: 'kilometraje_invalido o datos_invalidos', content: { 'application/json': { schema: { $ref: '#/components/schemas/ErrorResponse' } } } },
+          404: { description: 'combinacion_no_precalculada', content: { 'application/json': { schema: { $ref: '#/components/schemas/ErrorResponse' } } } },
+        },
+      },
+    },
+    '/identificar': {
+      post: {
+        tags: ['Visión'],
+        summary: 'Identificar el vehículo de una foto (sin precio)',
+        description: 'Flujo "Usar una foto": devuelve marca/modelo/año/tipo para prellenar el formulario. Mismos límites de imagen y errores de visión que POST /tasacion.',
+        requestBody: {
+          required: true,
+          content: {
+            'multipart/form-data': {
+              schema: {
+                type: 'object',
+                required: ['imagen'],
+                properties: { imagen: { type: 'string', format: 'binary', description: 'JPG/PNG/WEBP, máx. 5 MB' } },
+              },
+            },
+          },
+        },
+        responses: {
+          200: {
+            description: 'Vehículo identificado',
+            content: {
+              'application/json': {
+                schema: {
+                  type: 'object',
+                  properties: {
+                    marca: { type: 'string', example: 'toyota' },
+                    modelo: { type: 'string', example: 'corolla' },
+                    anio: { type: 'integer', example: 2015 },
+                    tipo: { type: 'string', nullable: true, example: 'sedan' },
+                    confianza: { type: 'number', example: 0.92 },
+                  },
+                },
+              },
+            },
+          },
+          400: { description: 'imagen_invalida', content: { 'application/json': { schema: { $ref: '#/components/schemas/ErrorResponse' } } } },
+          422: { description: 'vehiculo_no_identificado o vision_format_error', content: { 'application/json': { schema: { $ref: '#/components/schemas/ErrorResponse' } } } },
+          429: { description: 'limite_excedido', content: { 'application/json': { schema: { $ref: '#/components/schemas/ErrorResponse' } } } },
+          503: { description: 'vision_no_disponible', content: { 'application/json': { schema: { $ref: '#/components/schemas/ErrorResponse' } } } },
+        },
+      },
+    },
+    '/catalogo': {
+      get: {
+        tags: ['Catálogo'],
+        summary: 'Marcas, modelos y años disponibles en el precálculo',
+        responses: {
+          200: {
+            description: 'Catálogo',
+            content: {
+              'application/json': {
+                schema: {
+                  type: 'object',
+                  properties: {
+                    marcas: { type: 'array', items: { type: 'string' }, example: ['ford', 'toyota'] },
+                    modelos: { type: 'object', additionalProperties: { type: 'array', items: { type: 'string' } }, example: { toyota: ['camry', 'corolla'] } },
+                    anio_min: { type: 'integer', example: 1990 },
+                    anio_max: { type: 'integer', example: 2022 },
+                  },
+                },
+              },
+            },
+          },
+          503: { description: 'catalogo_no_disponible', content: { 'application/json': { schema: { $ref: '#/components/schemas/ErrorResponse' } } } },
+        },
+      },
+    },
+    '/revision': {
+      get: {
+        tags: ['Revisión'],
+        summary: 'Fallas comunes y puntos a revisar primero (ADR-0011)',
+        description: 'Gemini en modo texto, cacheado 24 h. Si Gemini no está disponible devuelve un checklist genérico con fuente "generico"; nunca da precios.',
+        parameters: [
+          { name: 'marca', in: 'query', required: true, schema: { type: 'string' }, example: 'toyota' },
+          { name: 'modelo', in: 'query', required: true, schema: { type: 'string' }, example: 'corolla' },
+          { name: 'anio', in: 'query', required: true, schema: { type: 'integer' }, example: 2015 },
+        ],
+        responses: {
+          200: {
+            description: 'Revisión',
+            content: {
+              'application/json': {
+                schema: {
+                  type: 'object',
+                  properties: {
+                    fallas_comunes: {
+                      type: 'array',
+                      items: { type: 'object', properties: { titulo: { type: 'string' }, detalle: { type: 'string' }, severidad: { type: 'string', enum: ['alta', 'media', 'baja'] } } },
+                    },
+                    revisar_primero: {
+                      type: 'array',
+                      items: { type: 'object', properties: { titulo: { type: 'string' }, detalle: { type: 'string' } } },
+                    },
+                    fuente: { type: 'string', enum: ['gemini', 'generico'] },
+                  },
+                },
+              },
+            },
+          },
+          400: { description: 'datos_invalidos', content: { 'application/json': { schema: { $ref: '#/components/schemas/ErrorResponse' } } } },
+          429: { description: 'limite_excedido', content: { 'application/json': { schema: { $ref: '#/components/schemas/ErrorResponse' } } } },
+        },
+      },
+    },
     '/health': {
       get: {
         summary: 'Diagnóstico de salud del servicio, base de datos y métricas del sistema',

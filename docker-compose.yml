@@ -1,7 +1,7 @@
 # Docker Compose del pipeline y servicios de ValorAuto.
 #
 #   docker compose up mlflow            # UI de MLflow en http://localhost:5001
-#   docker compose up api               # Backend Express en http://localhost:3000
+#   docker compose up api               # Backend Bun/Express en http://localhost:3000 (Swagger en /docs)
 #   docker compose run --rm training    # Reentrena los modelos y regenera precalc.db
 #   docker compose run --rm test-ml     # Corre las pruebas unitarias del pipeline de ML
 #
@@ -32,13 +32,20 @@ services:
     working_dir: /app
     env_file:
       - .env
+    # GEMINI_API_KEY se toma del .env de la raíz (ver src/api/.env.example).
+    # precalc.db se genera con `docker compose run --rm training` o scripts/recalc_precalc_db.py.
     environment:
       - PORT=3000
-      - DATABASE_PATH=/app/data/precalc.db
+      - DB_PATH=/app/data/precalc.db
     volumes:
       - ./data:/app/data:ro
     ports:
       - "3000:3000"
+    healthcheck:
+      test: ["CMD", "bun", "-e", "fetch('http://localhost:3000/health').then(r => process.exit(r.ok ? 0 : 1)).catch(() => process.exit(1))"]
+      interval: 15s
+      timeout: 5s
+      retries: 3
     restart: unless-stopped
 
   training:
@@ -70,4 +77,4 @@ services:
       - .:/app
       - ./data:/app/data
     profiles: ["tools"]
-    command: pytest tests/test_model_pipeline.py -v
+    command: pytest tests/test_model_pipeline.py tests/test_features_precalculo.py -v

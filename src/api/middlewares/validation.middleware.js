@@ -116,3 +116,91 @@ export function validateTasacionBody(req, res, next) {
 
   next();
 }
+
+/**
+ * Middleware para POST /identificar: solo valida la imagen (sin kilometraje).
+ */
+export function validateImagenSolo(req, res, next) {
+  const file = req.vehicleImage || req.file;
+  if (!file) {
+    return res.status(400).json({
+      error: 'imagen_invalida',
+      message: 'No se ha proporcionado ninguna imagen del vehículo.',
+    });
+  }
+  const result = tasacionInputSchema.shape.file.safeParse({
+    buffer: file.buffer,
+    mimetype: file.mimetype,
+    size: file.size,
+  });
+  if (!result.success) {
+    return res.status(400).json({
+      error: 'imagen_invalida',
+      message: result.error.issues[0]?.message || 'La imagen no es válida.',
+      detalles: result.error.issues,
+    });
+  }
+  req.vehicleImage = file;
+  next();
+}
+
+const textoRequerido = (campo) =>
+  z.string({ message: `El campo ${campo} es obligatorio.` }).trim().min(1, `El campo ${campo} es obligatorio.`).max(60);
+
+const anioActual = new Date().getFullYear() + 1;
+
+/**
+ * Esquema de POST /tasacion/datos (flujo "Ingresar datos" de la app).
+ * Mismos límites de kilometraje que POST /tasacion.
+ */
+export const tasacionDatosSchema = z.object({
+  marca: textoRequerido('marca'),
+  modelo: textoRequerido('modelo'),
+  anio: z.coerce
+    .number({ message: 'El año debe ser un número entero.' })
+    .int('El año debe ser un número entero.')
+    .min(1900, 'El año no es válido.')
+    .max(anioActual, 'El año no es válido.'),
+  kilometraje: tasacionInputSchema.shape.odometer,
+  tipo: z.string().trim().max(30).optional().nullable(),
+});
+
+export function validateTasacionDatos(req, res, next) {
+  const body = req.body || {};
+  const parsed = tasacionDatosSchema.safeParse({
+    ...body,
+    kilometraje:
+      body.kilometraje === undefined || body.kilometraje === null || body.kilometraje === ''
+        ? undefined
+        : Number(body.kilometraje),
+  });
+  if (!parsed.success) {
+    const issue = parsed.error.issues[0];
+    const campo = issue?.path?.[0];
+    return res.status(400).json({
+      error: campo === 'kilometraje' ? 'kilometraje_invalido' : 'datos_invalidos',
+      message: issue?.message || 'Los datos del vehículo no son válidos.',
+      campo,
+      detalles: parsed.error.issues,
+    });
+  }
+  req.vehiculo = parsed.data;
+  next();
+}
+
+/**
+ * Query de GET /revision: marca, modelo y año.
+ */
+export function validateRevisionQuery(req, res, next) {
+  const parsed = tasacionDatosSchema.pick({ marca: true, modelo: true, anio: true }).safeParse(req.query || {});
+  if (!parsed.success) {
+    const issue = parsed.error.issues[0];
+    return res.status(400).json({
+      error: 'datos_invalidos',
+      message: issue?.message || 'Se requieren marca, modelo y año.',
+      campo: issue?.path?.[0],
+    });
+  }
+  req.vehiculo = parsed.data;
+  next();
+}

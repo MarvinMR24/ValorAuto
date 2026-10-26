@@ -29,10 +29,15 @@ def cargar_modelo_production():
 
 
 def calcular_precios(model, df_combinaciones: pd.DataFrame) -> pd.DataFrame:
-    """Corre inferencia batch (vectorizada) sobre todas las combinaciones."""
-    predicciones = model.predict(df_combinaciones[config.FEATURES])
+    """Corre inferencia batch (vectorizada) sobre todas las combinaciones.
+
+    Los precios se recortan a config.PRECIO_MINIMO: el modelo puede extrapolar
+    valores negativos en combinaciones raras y eso no es un precio de mercado.
+    """
+    predicciones = np.asarray(model.predict(df_combinaciones[config.FEATURES]), dtype=float)
     df_resultado = df_combinaciones.copy()
-    df_resultado["predicted_price"] = np.round(predicciones, 2)
+    df_resultado["predicted_price"] = np.round(np.clip(predicciones, config.PRECIO_MINIMO, None), 2)
+    df_resultado["year"] = df_resultado["year"].astype(int)
     return df_resultado
 
 
@@ -50,6 +55,8 @@ def guardar_sqlite(df_resultado: pd.DataFrame, db_path=None) -> str:
         df_resultado.to_sql(config.TABLE_NAME, conn, if_exists="replace", index=False)
         columnas = ", ".join(config.INDEX_COLUMNS)
         conn.execute(f"CREATE INDEX IF NOT EXISTS idx_search ON {config.TABLE_NAME} ({columnas})")
+        columnas_fallback = ", ".join(config.INDEX_FALLBACK_COLUMNS)
+        conn.execute(f"CREATE INDEX IF NOT EXISTS idx_fallback ON {config.TABLE_NAME} ({columnas_fallback})")
         conn.commit()
     finally:
         conn.close()

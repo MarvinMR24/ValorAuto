@@ -62,3 +62,14 @@ El modelo en producción no realiza inferencia pesada en vivo durante la llamada
 ## 5. Limitación Conocida y Trazabilidad de Riesgo
 
 - **Riesgo R2 (Mercado boliviano vs. EE. UU.):** El dataset fuente proviene de anuncios de vehículos en Norteamérica. En el [Risk Register](../risk-register.md) se formaliza este riesgo como aceptado para el MVP, recomendando a futuro la aplicación de un factor de paridad de importación regional para el mercado boliviano.
+
+## 6. Actualización 2026-10-26 — `model_base` y precálculo por modelo (ADR-0010)
+
+Verificación independiente de la receta v3 (re-entrenada en Docker con el mismo split y semilla) y efecto de agregar el modelo del auto como feature:
+
+| Pipeline | RMSE (USD) | MAE (USD) | $R^2$ |
+|---|---|---|---|
+| XGBoost Tuned Depth 9, 10 features (re-medido) | 5,798 | 3,563 | 0.8320 |
+| **XGBoost Tuned Depth 9 + `model_base` (11 features)** | **5,301** | **3,243** | **0.8596** |
+
+La re-medición de la v3 sin `model_base` dio algo por debajo de lo reportado en la tabla de la sección 1 (0.8482). El nuevo `data/precalc.db` (80,520 filas, 40 marcas, 1,827 modelos base) se generó con `scripts/recalc_precalc_db.py`. Todos los precios son ≥ 500 USD: antes había 4 negativos. El backend usa MAE = 3,243 para `precio_min`/`precio_max`. **Pendiente:** registrar este modelo como nueva versión `Production` en el Model Registry.

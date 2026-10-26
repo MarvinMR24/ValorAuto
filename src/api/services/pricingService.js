@@ -20,7 +20,7 @@ import { normalizeManufacturer, normalizeVehicleType } from '../utils/normalizer
 export class PricingService {
   constructor() {
     this.sqliteService = sqliteService;
-    this.baselineMae = config.model?.baselineMae || 3778;
+    this.baselineMae = config.model?.baselineMae || 3243;
     // Permite activar o desactivar el mock fallback (útil para pruebas y desarrollo continuo)
     this.allowMockFallback = process.env.ALLOW_PRICE_FALLBACK === 'true' || process.env.NODE_ENV === 'test_fallback';
   }
@@ -55,6 +55,7 @@ export class PricingService {
     try {
       const sqliteResult = await this.sqliteService.queryPrice({
         manufacturer: normManufacturer,
+        model: normModel,
         year: normYear,
         type: normType,
         odometer: normOdometer,
@@ -67,6 +68,7 @@ export class PricingService {
           precio_min: sqliteResult.precio_min,
           precio_max: sqliteResult.precio_max,
           rango_km: sqliteResult.rango_km,
+          coincidencia: sqliteResult.coincidencia,
           fuente: 'sqlite_precalculo',
           pricingDurationMs,
           detalles: sqliteResult.detalles,
@@ -145,6 +147,7 @@ export class PricingService {
       precio_min: precioMin,
       precio_max: precioMax,
       rango_km: rangoKm,
+      coincidencia: 'ninguna',
       fuente: 'mock_heuristico_provisional',
       detalles: {
         tipo: type || 'desconocido',

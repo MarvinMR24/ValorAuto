@@ -50,10 +50,21 @@ ODOMETER_MAX = 350_000
 # tienen 40-72% de nulos en el dataset crudo; el SimpleImputer los rellena con
 # la moda, lo cual funciona para entrenar pero tiene una consecuencia real en
 # el pipeline de precálculo (ver src/pipeline/combinations.py y ADR-0009).
-FEATURES = ["year", "odometer", "manufacturer", "fuel", "transmission", "drive", "type", "condition", "cylinders", "size"]
+#
+# model_base (modelo normalizado, ver features.normalizar_modelo y ADR-0010)
+# se agregó con la misma metodología: con los hiperparámetros v3, R2 pasó de
+# 0.832 a 0.858 y MAE de 3563 a 3263. Además es lo que permite que el backend
+# distinga un Corolla de un Camry al buscar en precalc.db.
+FEATURES = ["year", "odometer", "manufacturer", "model_base", "fuel", "transmission", "drive", "type", "condition", "cylinders", "size"]
 NUM_FEATURES = ["year", "odometer"]
-CAT_FEATURES = ["manufacturer", "fuel", "transmission", "drive", "type", "condition", "cylinders", "size"]
+CAT_FEATURES = ["manufacturer", "model_base", "fuel", "transmission", "drive", "type", "condition", "cylinders", "size"]
 TARGET = "price"
+
+# --- Normalización de `model` (texto libre de Craigslist) -----------------
+# Espejo exacto en src/api/utils/normalizer.js (normalizeModel).
+MODELO_PREFIJOS_DOS_PALABRAS = {"grand", "town", "range", "santa", "land", "model"}
+MODELO_ALIASES = {"f150": "f-150", "f250": "f-250", "f350": "f-350", "crv": "cr-v", "hrv": "hr-v", "rav-4": "rav4"}
+MIN_FRECUENCIA_CATEGORIA = 20
 
 # --- Hiperparámetros por modelo -------------------------------------------
 # Random Forest usa los valores de train_baseline.ipynb (50/10), no los de
