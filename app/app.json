@@ -9,18 +9,22 @@
     "ios": {
       "supportsTablet": true,
       "infoPlist": {
-        "NSCameraUsageDescription": "ValorAuto usa la cámara para fotografiar el auto que querés tasar.",
+        "NSCameraUsageDescription": "ValorAuto usa la cámara para fotografiar el auto que quieres tasar.",
         "NSPhotoLibraryUsageDescription": "ValorAuto necesita acceso a tus fotos para elegir la imagen del auto."
-      }
+      },
+      "bundleIdentifier": "com.snarf3.valorauto"
     },
     "android": {
       "adaptiveIcon": {
-        "backgroundColor": "#E6F4FE",
+        "backgroundColor": "#F6F1E7",
         "foregroundImage": "./assets/android-icon-foreground.png",
         "backgroundImage": "./assets/android-icon-background.png",
         "monochromeImage": "./assets/android-icon-monochrome.png"
       },
-      "predictiveBackGestureEnabled": false
+      "predictiveBackGestureEnabled": false,
+      "permissions": [
+        "android.permission.RECORD_AUDIO"
+      ]
     },
     "web": {
       "favicon": "./assets/favicon.png"
@@ -30,10 +34,20 @@
       [
         "expo-image-picker",
         {
-          "cameraPermission": "ValorAuto usa la cámara para fotografiar el auto que querés tasar.",
+          "cameraPermission": "ValorAuto usa la cámara para fotografiar el auto que quieres tasar.",
           "photosPermission": "ValorAuto necesita acceso a tus fotos para elegir la imagen del auto."
         }
-      ]
+      ],
+      [
+        "expo-splash-screen",
+        {
+          "image": "./assets/splash-icon.png",
+          "imageWidth": 200,
+          "resizeMode": "contain",
+          "backgroundColor": "#F6F1E7"
+        }
+      ],
+      "expo-status-bar"
     ]
   }
 }

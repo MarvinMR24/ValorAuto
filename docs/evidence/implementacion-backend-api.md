@@ -57,7 +57,7 @@ src/api/
 ├── config/
 │   └── config.js                    # Configuración centralizada de entorno
 ├── middlewares/
-│   ├── upload.middleware.js         # Multer en memoria (máx 8MB, jpg/png) y validación de odómetro
+│   ├── upload.middleware.js         # Multer en memoria (máx 5MB, jpg/png/webp)
 │   └── error.middleware.js          # Manejador global de errores y 404
 ├── services/
 │   ├── gemini.service.js            # Servicio de visión con el SDK @google/genai (Gemini 3.5 Flash)
@@ -84,8 +84,8 @@ src/api/
 | Código | Error Code | Causa |
 | :--- | :--- | :--- |
 | **`200 OK`** | *(Ninguno)* | Tasación exitosa con precio estimado y rango min/max. |
-| **`400 Bad Request`** | `imagen_invalida` | Falta archivo, supera 8 MB o formato distinto a JPG/PNG. |
-| **`400 Bad Request`** | `kilometraje_invalido` | Kilometraje ausente, no entero o fuera de 0..1,000,000. |
+| **`400 Bad Request`** | `imagen_invalida` | Falta archivo, supera 5 MB o formato distinto a JPG/PNG/WEBP. |
+| **`400 Bad Request`** | `kilometraje_invalido` | Kilometraje ausente, no entero o fuera de 0..500,000. |
 | **`422 Unprocessable Entity`** | `vehiculo_no_identificado` | Gemini no reconoce el auto o confianza $< 0.60$. |
 | **`422 Unprocessable Entity`** | `vision_format_error` | La respuesta del modelo de visión no fue un JSON válido. |
 | **`404 Not Found`** | `combinacion_no_precalculada` | Vehículo reconocido, pero sin precio precalculado en SQLite. |

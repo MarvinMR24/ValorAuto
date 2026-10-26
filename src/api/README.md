@@ -130,7 +130,7 @@ VISION_TIMEOUT_MS=25000
 DB_PATH=../../data/precalc.db
 
 # Error medio absoluto (MAE) de referencia del modelo en Producción (USD)
-BASELINE_MAE=3778
+BASELINE_MAE=3243
 
 # Activar fallback heurístico si la combinación no está en SQLite (para desarrollo continuo)
 ALLOW_PRICE_FALLBACK=false

@@ -1,16 +1,16 @@
-FROM node:20-alpine
+# Backend de ValorAuto (Bun + Express, ADR-0001). En Bun el acceso a SQLite es
+# con `bun:sqlite` nativo, así que no hace falta compilar better-sqlite3
+# (--ignore-scripts): solo se usaría como fallback si se corriera con Node.
+FROM oven/bun:1.4.4
 
 WORKDIR /app
 
-# Instalar dependencias necesarias para compilar better-sqlite3 si hiciera falta
-RUN apk add --no-cache python3 make g++
-
-COPY package*.json ./
-
-RUN npm install --omit=dev
+COPY package.json bun.lock ./
+RUN bun install --production --frozen-lockfile --ignore-scripts
 
 COPY . .
 
+ENV NODE_ENV=production
 EXPOSE 3000
 
-CMD ["node", "src/server.js"]
+CMD ["bun", "index.js"]

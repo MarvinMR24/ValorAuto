@@ -1,6 +1,6 @@
 import fs from 'fs';
 import { config } from '../config/config.js';
-import { normalizeManufacturer, normalizeVehicleType } from '../utils/normalizer.js';
+import { normalizeManufacturer, normalizeModel, normalizeVehicleType, vehicleTypeCandidates } from '../utils/normalizer.js';
 import { logger } from '../utils/logger.js';
 
 /**
@@ -46,6 +46,7 @@ export class SqlitePrecalcService {
     this.db = null;
     this.tableColumns = new Set();
     this.knownManufacturers = [];
+    this.catalog = null;
   }
 
   /**
@@ -120,17 +121,26 @@ export class SqlitePrecalcService {
 
   /**
    * Consulta el precio precalculado para un vehículo según sus características.
-   * ADR-0007: Índice por (manufacturer, year, type).
-   * Aplica normalización y Fuzzy Matching para evitar falsos 404s.
+   * ADR-0010: búsqueda por (manufacturer, model_base, year, odometer) con
+   * índice idx_search, y fallback por (manufacturer, year, type, odometer).
+   * Aplica normalización y Fuzzy Matching de marca para evitar falsos 404s.
+   *
+   * Niveles de coincidencia (campo `coincidencia` del resultado):
+   * - 'modelo': existe el modelo; se toma su configuración representativa
+   *   (la que comparte el tipo de carrocería de Gemini, si hay; si no, la de más anuncios).
+   * - 'marca_anio_tipo' / 'marca_anio': el modelo no está en la tabla; promedio
+   *   ponderado por n_anuncios de la marca+año (y tipo si coincide). Sigue siendo
+   *   precio precalculado (ADR-0003), solo que menos específico.
    *
    * @param {Object} params
    * @param {string} params.manufacturer - Marca del vehículo (ej: 'toyota', 'chevy')
+   * @param {string} [params.model] - Modelo del vehículo (ej: 'corolla le', 'F150')
    * @param {number} params.year - Año de fabricación (ej: 2015)
    * @param {string} [params.type] - Tipo de carrocería (ej: 'sedan', 'pickup')
    * @param {number} params.odometer - Kilometraje real o ya discretizado
-   * @returns {Promise<{ precio_estimado: number, precio_min: number, precio_max: number, rango_km: number, queryTimeMs: number } | null>}
+   * @returns {Promise<{ precio_estimado: number, precio_min: number, precio_max: number, rango_km: number, coincidencia: string, queryTimeMs: number } | null>}
    */
-  async queryPrice({ manufacturer, year, type = null, odometer }) {
+  async queryPrice({ manufacturer, model = null, year, type = null, odometer }) {
     const startTime = performance.now();
     const db = await this.getDb();
     if (!db) {
@@ -141,43 +151,56 @@ export class SqlitePrecalcService {
 
     // Normalización y Fuzzy Matching de la marca contra la base de datos
     const normManufacturer = normalizeManufacturer(manufacturer, this.knownManufacturers);
+    const normModel = normalizeModel(model, normManufacturer);
     const normYear = Number(year);
     const normType = normalizeVehicleType(type);
-
-    // Detectar qué nombre de columna de kilometraje tiene la tabla (odometer o rango_km)
-    const odoCol = this.tableColumns.has('rango_km') ? 'rango_km' : 'odometer';
+    const typeCandidates = this.tableColumns.has('type') ? vehicleTypeCandidates(normType) : [];
+    const typeIn = typeCandidates.map(() => '?').join(', ');
+    const weight = this.tableColumns.has('n_anuncios') ? 'n_anuncios' : '1';
 
     let row = null;
+    let coincidencia = null;
 
-    // 1. Intento principal: coincidencia exacta por (manufacturer, year, type, rango_km)
-    if (normType && this.tableColumns.has('type')) {
+    // 1. Coincidencia por modelo: una fila por (marca, modelo, año, tipo, km) en precalc.db
+    if (normModel && this.tableColumns.has('model_base')) {
       try {
-        const queryWithSql = `
+        const orderByType = typeCandidates.length ? `(LOWER(type) IN (${typeIn})) DESC, ` : '';
+        row = db.prepare(`
           SELECT * FROM ${this.tableName}
-          WHERE LOWER(manufacturer) = LOWER(?)
-            AND year = ?
-            AND LOWER(type) = LOWER(?)
-            AND ${odoCol} = ?
+          WHERE manufacturer = ? AND model_base = ? AND year = ? AND odometer = ?
+          ORDER BY ${orderByType}${weight} DESC
           LIMIT 1
-        `;
-        row = db.prepare(queryWithSql).get(normManufacturer, normYear, normType, rangoKm);
+        `).get(normManufacturer, normModel, normYear, rangoKm, ...typeCandidates);
+        if (row) coincidencia = 'modelo';
       } catch (err) {
-        logger.warn({ error: err.message }, '[SQLite] Consulta con tipo falló');
+        logger.warn({ error: err.message }, '[SQLite] Consulta por modelo falló');
       }
     }
 
-    // 2. Si no se especificó tipo o no hubo coincidencia con ese tipo específico,
-    // consultar por (manufacturer, year, rango_km) ignorando el tipo
+    // 2. Fallback: promedio ponderado de la marca+año(+tipo) para ese rango de km
+    const aggregate = (withType) => db.prepare(`
+      SELECT SUM(predicted_price * ${weight}) * 1.0 / SUM(${weight}) AS predicted_price, COUNT(*) AS filas
+      FROM ${this.tableName}
+      WHERE manufacturer = ? AND year = ? AND odometer = ?
+        ${withType ? `AND LOWER(type) IN (${typeIn})` : ''}
+    `).get(normManufacturer, normYear, rangoKm, ...(withType ? typeCandidates : []));
+
     if (!row) {
       try {
-        const queryFallback = `
-          SELECT * FROM ${this.tableName}
-          WHERE LOWER(manufacturer) = LOWER(?)
-            AND year = ?
-            AND ${odoCol} = ?
-          LIMIT 1
-        `;
-        row = db.prepare(queryFallback).get(normManufacturer, normYear, rangoKm);
+        if (typeCandidates.length) {
+          const agg = aggregate(true);
+          if (agg?.filas > 0) {
+            row = { predicted_price: agg.predicted_price, type: normType };
+            coincidencia = 'marca_anio_tipo';
+          }
+        }
+        if (!row) {
+          const agg = aggregate(false);
+          if (agg?.filas > 0) {
+            row = { predicted_price: agg.predicted_price };
+            coincidencia = 'marca_anio';
+          }
+        }
       } catch (err) {
         logger.error({ error: err.message }, '[SQLite] Error en consulta fallback');
       }
@@ -202,7 +225,7 @@ export class SqlitePrecalcService {
 
     const precioEstimado = Math.round(Number(rawPrice) * 100) / 100;
 
-    // Cálculo del rango derivado del error MAE del modelo baseline (XGBoost: ~3778 USD)
+    // Rango derivado del MAE del modelo en producción (ver BASELINE_MAE en config.js)
     const mae = Number(row.mae ?? this.baselineMae);
     const precioMin = Math.max(0, Math.round(precioEstimado - mae));
     const precioMax = Math.round(precioEstimado + mae);
@@ -212,15 +235,55 @@ export class SqlitePrecalcService {
       precio_min: precioMin,
       precio_max: precioMax,
       rango_km: rangoKm,
+      coincidencia,
       queryTimeMs,
       detalles: {
         manufacturer_consultado: normManufacturer,
+        model_consultado: normModel || null,
         type: row.type ?? normType,
         fuel: row.fuel,
         transmission: row.transmission,
         drive: row.drive,
       },
     };
+  }
+
+  /**
+   * Catálogo para los selectores de la app: marcas, modelos por marca (ordenados
+   * por cantidad de anuncios) y rango de años presentes en precalc.db.
+   * Se calcula una sola vez por conexión (la tabla es de solo lectura).
+   *
+   * @returns {Promise<{ marcas: string[], modelos: Record<string, string[]>, anio_min: number, anio_max: number } | null>}
+   */
+  async getCatalog() {
+    if (this.catalog) return this.catalog;
+    const db = await this.getDb();
+    if (!db) return null;
+
+    const hasModel = this.tableColumns.has('model_base');
+    const weight = this.tableColumns.has('n_anuncios') ? 'SUM(n_anuncios)' : 'COUNT(*)';
+    const modelos = {};
+    if (hasModel) {
+      const rows = db.prepare(`
+        SELECT manufacturer, model_base, ${weight} AS peso
+        FROM ${this.tableName}
+        WHERE model_base IS NOT NULL
+        GROUP BY manufacturer, model_base
+        ORDER BY manufacturer, peso DESC, model_base
+      `).all();
+      for (const r of rows) {
+        (modelos[r.manufacturer] ||= []).push(r.model_base);
+      }
+    }
+    const years = db.prepare(`SELECT MIN(year) AS min, MAX(year) AS max FROM ${this.tableName}`).get();
+
+    this.catalog = {
+      marcas: [...this.knownManufacturers].sort(),
+      modelos,
+      anio_min: Number(years?.min),
+      anio_max: Number(years?.max),
+    };
+    return this.catalog;
   }
 
   /**
