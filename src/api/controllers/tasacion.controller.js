@@ -197,6 +197,8 @@ export async function tasarPorTexto(req, res) {
 
     return res.status(200).json({
       success: true,
+      veredicto: 'vehiculo_valido_y_tasado',
+      correcciones_ia: geminiResult.correcciones_aplicadas,
       vehiculo: {
         marca,
         modelo,
@@ -437,6 +439,8 @@ export async function tasarPorImagen(req, res) {
 
     return res.status(200).json({
       success: true,
+      veredicto: 'vehiculo_valido_y_tasado',
+      correcciones_ia: [],
       vehiculo: {
         marca,
         modelo,

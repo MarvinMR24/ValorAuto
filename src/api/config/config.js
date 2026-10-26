@@ -44,6 +44,8 @@ export const config = {
     },
     confidenceThreshold: parseFloat(process.env.VISION_CONFIDENCE_THRESHOLD || '0.6'),
     timeoutMs: parseInt(process.env.VISION_TIMEOUT_MS || '45000', 10),
+    maxOutputTokens: parseInt(process.env.VISION_MAX_OUTPUT_TOKENS || '200', 10),
+    temperature: parseFloat(process.env.VISION_TEMPERATURE || '0.1'),
   },
   database: {
     path: resolvedDbPath,
@@ -65,6 +67,12 @@ export const config = {
   upload: {
     maxFileSizeBytes: 8 * 1024 * 1024, // 8 MB según contrato OpenSpec y ADR-0001
     allowedMimeTypes: ['image/jpeg', 'image/png', 'image/jpg', 'image/webp'],
+    optimization: {
+      enabled: process.env.IMAGE_OPTIMIZATION_ENABLED !== 'false',
+      maxDimension: parseInt(process.env.IMAGE_MAX_DIMENSION || '800', 10),
+      jpegQuality: parseInt(process.env.IMAGE_JPEG_QUALITY || '75', 10),
+      outputMimeType: 'image/jpeg',
+    },
   },
   odometer: {
     min: 0,
