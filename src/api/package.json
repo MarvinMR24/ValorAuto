@@ -1,8 +1,7 @@
 {
   "name": "valorauto-api",
-  "version": "1.0.0",
-<<<<<<< HEAD
-  "description": "API REST Backend para ValorAuto - Tasador de Autos con IA",
+  "version": "2.0.0",
+  "description": "API REST Backend para ValorAuto - Pipeline Híbrido (Gemini Vision + Modelo ML Local + Fallback)",
   "type": "module",
   "main": "index.js",
   "scripts": {
@@ -34,29 +33,9 @@
     "bun",
     "gemini",
     "sqlite",
-    "mlops"
+    "mlops",
+    "hybrid-pipeline"
   ],
   "author": "ValorAuto Team",
   "license": "ISC"
-=======
-  "description": "Backend API para Tasador de Autos con IA (ValorAuto)",
-  "main": "src/server.js",
-  "scripts": {
-    "start": "node src/server.js",
-    "dev": "node --watch src/server.js",
-    "test": "jest --runInBand --detectOpenHandles"
-  },
-  "dependencies": {
-    "@google/generative-ai": "^0.24.1",
-    "cors": "^2.8.5",
-    "dotenv": "^16.4.7",
-    "express": "^4.21.2",
-    "multer": "^1.4.5-lts.1",
-    "sql.js": "^1.12.0"
-  },
-  "devDependencies": {
-    "jest": "^29.7.0",
-    "supertest": "^7.0.0"
-  }
->>>>>>> origin/Leo
 }

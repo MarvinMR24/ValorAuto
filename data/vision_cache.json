@@ -1,0 +1,42 @@
+{
+  "5e4b99e5c905778a7b76d5c4c0b7bd88fb640b3aa07b46cbbbe991a743f9709d": {
+    "manufacturer": "toyota",
+    "model": "camry",
+    "year": 2020,
+    "type": "sedan",
+    "condition": "like new",
+    "confidence": 0.95
+  },
+  "8e499f9b1df69868cbceca022f3a448c5f39d31f38cb967e5ad31b1025e71c3e": {
+    "manufacturer": "bmw",
+    "model": "m3",
+    "year": 2016,
+    "type": "sedan",
+    "condition": "excellent",
+    "confidence": 0.95
+  },
+  "e011ca554c3f7088878e5e9f400c35d30d6a3b3d2b8cbc6a9509fc6df6fadfda": {
+    "manufacturer": "mercedes-benz",
+    "model": "amg gt",
+    "year": 2016,
+    "type": "coupe",
+    "condition": "like new",
+    "confidence": 0.95
+  },
+  "f77be8eab9b62c65fa37fdeae1edd850bfe67ae72c6a31f1b6fb0c7b77687327": {
+    "manufacturer": "chevrolet",
+    "model": "camaro",
+    "year": 2017,
+    "type": "coupe",
+    "condition": "excellent",
+    "confidence": 0.95
+  },
+  "19c5872ffda870617c8915be204ab3dfde14c02dcb83624851db15e923387b29": {
+    "manufacturer": "ferrari",
+    "model": "laferrari",
+    "year": 2015,
+    "type": "coupe",
+    "condition": "like new",
+    "confidence": 0.98
+  }
+}

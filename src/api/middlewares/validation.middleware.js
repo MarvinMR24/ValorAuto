@@ -4,9 +4,9 @@ import { config } from '../config/config.js';
 /**
  * Esquema de validación estricta con Zod para el endpoint POST /tasacion
  *
- * Reglas de negocio:
- * - odometer: Entero positivo coherente entre 0 y 500,000 km.
- * - imagen: Archivo presente, tipo MIME permitido (JPG, PNG, WEBP) y tamaño <= 5 MB.
+ * Reglas de negocio (ADR-0001 / OpenSpec):
+ * - odometer / kilometraje: Entero positivo en el rango de 0 a 1,000,000 km.
+ * - imagen: Archivo presente en memoria, tipo MIME permitido (JPG, PNG, WEBP) y tamaño <= 8 MB.
  */
 export const tasacionInputSchema = z.object({
   odometer: z

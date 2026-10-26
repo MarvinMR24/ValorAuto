@@ -91,13 +91,16 @@ app.use(notFoundHandler);
 app.use(globalErrorHandler);
 
 // Inicio del servidor HTTP
-export const server = app.listen(config.port, () => {
+const portToUse = process.env.NODE_ENV === 'test' ? parseInt(process.env.TEST_PORT || '3001', 10) : config.port;
+
+export const server = app.listen(portToUse, () => {
+  const actualPort = server.address()?.port || portToUse;
   const runtimeInfo = typeof Bun !== 'undefined' ? `Bun v${Bun.version}` : `Node ${process.version}`;
   logger.info({
-    port: config.port,
+    port: actualPort,
     runtime: runtimeInfo,
-    docsUrl: `http://localhost:${config.port}/docs`,
-    healthUrl: `http://localhost:${config.port}/health`,
+    docsUrl: `http://localhost:${actualPort}/docs`,
+    healthUrl: `http://localhost:${actualPort}/health`,
     dbPath: config.database.path,
   }, '🚗 ValorAuto API Backend iniciado con éxito');
 });
