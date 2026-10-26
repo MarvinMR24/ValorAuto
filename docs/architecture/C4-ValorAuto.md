@@ -66,7 +66,7 @@ flowchart TD
     style DagsHub fill:#999999,color:#fff,stroke:#6B6B6B
 ```
 
-**Lo que todavía no existe:** el pipeline se ejecuta a demanda (`docker compose run --rm training …`). `scripts/nightly_retrain.py` implementa la corrida nocturna con detección de cambios del dataset, pero **no hay ningún servidor 24/7 con cron** que la dispare (ver `scripts/README.md`). Tampoco hay despliegue en la nube: el MVP corre con Docker Compose en una máquina del equipo (R25).
+**Lo que todavía no existe:** el pipeline se ejecuta a demanda (`docker compose run --rm training …`). `scripts/nightly_retrain.py` implementa la corrida nocturna con detección de cambios del dataset, pero **no hay ningún servidor 24/7 con cron** que la dispare (ver `scripts/README.md`). El entorno definido para esta entrega es Docker Compose en una máquina del equipo; la nube no forma parte de la 2.ª defensa (R25).
 
 ## Nivel 3 — Componentes del API Backend (`src/api`)
 

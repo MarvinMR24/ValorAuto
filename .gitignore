@@ -27,3 +27,6 @@ Claude outputs/
 tests/e2e/.web-build/
 tests/e2e/reporte/
 tests/e2e/test-results/
+
+# Material del curso (no se versiona)
+docs/Guia_de_Defensa_del_MVP.pdf

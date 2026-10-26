@@ -109,6 +109,7 @@ docker compose run --rm training                      # pipeline completo con no
 | Unitarias (ML) | Configuración de features, limpieza, combinaciones, piso de precio, escritura atómica, esquema de `precalc.db` | `docker compose --profile tools run --rm test-ml` | **26/26** |
 | E2E | App real (build web) → API → precalc.db → resultado en pantalla; foto real → Gemini → precio → revisión | `cd tests/e2e && npm install && npx playwright install chromium && npm run build:app && npm test` | **4/4** |
 | Smoke | Despliegue levantado: salud, catálogo, tasación, revisión y errores | `scripts/smoke_test.sh [URL]` (con foto real: `CON_GEMINI=1 scripts/smoke_test.sh`) | **OK** |
+| Golden set (IA generativa) | Exactitud de Gemini sobre 28 fotos etiquetadas (marca, modelo, año, 422/503, latencia) | `docker compose --profile tools run --rm test-ml python tests/golden_set/evaluar_golden_set.py` | marca+modelo **100 %**, año ±1 **82 %** |
 
 Detalle de las pruebas E2E en [`tests/e2e/`](tests/e2e/). Con Node 26, el E2E necesita Playwright 1.63 (ya fijado en su `package.json`).
 
@@ -135,8 +136,7 @@ Experimentos que no mejoraron y quedaron documentados: `cylinders` numérico en 
 
 **Limitaciones declaradas** (ver el [risk register](docs/risk-register.md)):
 - El dataset es del mercado de EE. UU., no del boliviano (R2).
-- La exactitud de Gemini todavía no está medida con un golden set (R21).
-- El MVP corre con Docker Compose en una máquina del equipo, sin nube (R25).
+- Gemini acierta marca y modelo en 28/28 fotos del golden set, pero el **año** solo en el 82 % con ±1 año, y su confianza no avisa cuándo se equivoca: por eso el formulario es editable ([evaluación](docs/evidence/golden-set-vision.md), R3/R21).
 
 ## Estructura
 
