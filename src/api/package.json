@@ -1,0 +1,62 @@
+{
+  "name": "valorauto-api",
+  "version": "1.0.0",
+<<<<<<< HEAD
+  "description": "API REST Backend para ValorAuto - Tasador de Autos con IA",
+  "type": "module",
+  "main": "index.js",
+  "scripts": {
+    "start": "bun index.js",
+    "dev": "bun --watch index.js",
+    "test": "bun test",
+    "test:e2e": "bun run tests/download-and-test.js",
+    "seed": "bun run scripts/seed_demo_db.js"
+  },
+  "dependencies": {
+    "@google/genai": "^2.31.0",
+    "better-sqlite3": "^11.8.1",
+    "cors": "^2.8.5",
+    "dotenv": "^16.4.7",
+    "express": "^4.21.2",
+    "express-rate-limit": "^8.7.1",
+    "fuse.js": "^7.5.0",
+    "helmet": "^8.3.0",
+    "lru-cache": "^11.5.3",
+    "multer": "^1.4.5-lts.1",
+    "pino": "^10.4.0",
+    "pino-http": "^11.0.0",
+    "swagger-ui-express": "^5.0.1",
+    "zod": "^4.6.7"
+  },
+  "keywords": [
+    "valorauto",
+    "express",
+    "bun",
+    "gemini",
+    "sqlite",
+    "mlops"
+  ],
+  "author": "ValorAuto Team",
+  "license": "ISC"
+=======
+  "description": "Backend API para Tasador de Autos con IA (ValorAuto)",
+  "main": "src/server.js",
+  "scripts": {
+    "start": "node src/server.js",
+    "dev": "node --watch src/server.js",
+    "test": "jest --runInBand --detectOpenHandles"
+  },
+  "dependencies": {
+    "@google/generative-ai": "^0.24.1",
+    "cors": "^2.8.5",
+    "dotenv": "^16.4.7",
+    "express": "^4.21.2",
+    "multer": "^1.4.5-lts.1",
+    "sql.js": "^1.12.0"
+  },
+  "devDependencies": {
+    "jest": "^29.7.0",
+    "supertest": "^7.0.0"
+  }
+>>>>>>> origin/Leo
+}
