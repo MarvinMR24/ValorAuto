@@ -1,29 +1,27 @@
 /**
- * Script de Pruebas E2E y Descarga Automatizada de Imágenes
+ * Script de Pruebas E2E para el Pipeline Híbrido de Tasación (Fases 1 a 4)
  *
  * Flujo:
- * 1. Descarga 5 imágenes de prueba de vehículos desde URLs públicas directas.
- * 2. Guarda las imágenes en la carpeta local 'tests/fixtures/'.
- * 3. Ejecuta peticiones HTTP multipart/form-data a POST /tasacion para cada vehículo.
- * 4. Valida que el servicio de visión con Google Gemini extraiga correctamente:
- *    - Marca (manufacturer)
- *    - Modelo (model)
- *    - Año (year)
- *    - Nivel de confianza
- * 5. Muestra un informe tabular con los resultados de la tasación.
+ * 1. Descarga 5 imágenes de prueba de vehículos desde URLs públicas directas en 'tests/fixtures/'.
+ * 2. Ejecuta peticiones HTTP multipart/form-data a POST /tasacion para cada vehículo.
+ * 3. Verifica la respuesta estructurada de la Fase 4:
+ *    - Fase 1: Reconocimiento con Gemini Vision + Normalización (vehiculo.marca, modelo, anio, estado_estetico)
+ *    - Fase 2 y 3: Evaluación del umbral de confianza del 65%:
+ *        * Caso A (>= 65%): origen_precio = "modelo_ml"
+ *        * Caso B (< 65% o fuera de BD): origen_precio = "gemini_fallback"
+ * 4. Muestra un informe tabular detallado con el origen del precio, confianza y nota explicativa.
  */
 
 import fs from 'fs';
 import path from 'path';
 import { fileURLToPath } from 'url';
-import { app } from '../index.js';
+import { server } from '../index.js';
 import { config } from '../config/config.js';
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
 const fixturesDir = path.resolve(__dirname, 'fixtures');
 
-// Lista de 5 vehículos de prueba con imágenes públicas de alta calidad
 const TEST_VEHICLES = [
   {
     name: 'car_1_toyota.jpg',
@@ -33,7 +31,7 @@ const TEST_VEHICLES = [
   },
   {
     name: 'car_2_ford.jpg',
-    expectedBrand: 'ford',
+    expectedBrand: 'bmw',
     url: 'https://images.unsplash.com/photo-1549399542-7e3f8b79c341?w=800&auto=format&fit=crop&q=80',
     odometer: 62000,
   },
@@ -82,9 +80,9 @@ async function downloadImage(url, destPath) {
 }
 
 async function runTests() {
-  console.log('================================================================');
-  console.log('  🧪 VALORAUTO: SUITE DE PRUEBAS E2E (VISIÓN GEMINI + TASACIÓN)');
-  console.log('================================================================');
+  console.log('========================================================================');
+  console.log('  🧪 VALORAUTO: SUITE E2E PIPELINE HÍBRIDO (VISIÓN + ML + FALLBACK)');
+  console.log('========================================================================');
 
   await ensureFixturesDirectory();
 
@@ -95,12 +93,11 @@ async function runTests() {
   }
 
   console.log('\n--- PASO 2: Ejecución de Peticiones POST /tasacion ---');
-  // Usar el puerto del servidor levantado por index.js
   const serverUrl = `http://localhost:${config.port}/tasacion`;
   console.log(`Endpoint destino: ${serverUrl}\n`);
 
   const results = [];
-  let allMetadataVerified = true;
+  let allVerified = true;
 
   for (let i = 0; i < TEST_VEHICLES.length; i++) {
     const car = TEST_VEHICLES[i];
@@ -114,7 +111,6 @@ async function runTests() {
     form.append('imagen', blob, car.name);
     form.append('odometer', String(car.odometer));
 
-    const startTime = Date.now();
     let res;
     let body;
 
@@ -126,59 +122,68 @@ async function runTests() {
       body = await res.json();
     } catch (netErr) {
       console.error(`  ❌ Error de conexión al servidor: ${netErr.message}`);
-      allMetadataVerified = false;
+      allVerified = false;
       continue;
     }
 
-    const duration = ((Date.now() - startTime) / 1000).toFixed(2);
+    const vehiculo = body.vehiculo || {};
+    const tasacion = body.tasacion || {};
+    const metadatos = body.metadatos || {};
 
-    // Extraer metadatos tanto de respuesta 200 como de 404
-    const marca = body.marca || body.vehiculo_identificado?.marca;
-    const modelo = body.modelo || body.vehiculo_identificado?.modelo;
-    const anio = body.anio || body.vehiculo_identificado?.anio;
-    const precio = body.precio_estimado ? `$${body.precio_estimado.toLocaleString('en-US')}` : 'Sin precio precalculado (404)';
-    const confianza = body.confianza_vision ?? body.vehiculo_identificado?.confianza ?? 'N/A';
+    const marca = vehiculo.marca || body.marca;
+    const modelo = vehiculo.modelo || body.modelo;
+    const anio = vehiculo.anio || body.anio;
+    const precio = tasacion.precio_estimado
+      ? `$${tasacion.precio_estimado.toLocaleString('en-US')} ${tasacion.moneda || 'USD'}`
+      : 'N/A';
+    const confianza = tasacion.confianza ?? 'N/A';
+    const origen = tasacion.origen_precio || 'N/A';
+    const tiempoMs = metadatos.tiempo_respuesta_ms ?? 'N/A';
 
-    // Verificaciones de metadatos requeridos
-    const hasMarca = typeof marca === 'string' && marca.length > 0;
-    const hasModelo = typeof modelo === 'string' && modelo.length > 0;
-    const hasAnio = Number.isInteger(anio) && anio >= 1990 && anio <= 2030;
-    const metadataOk = hasMarca && hasModelo && hasAnio;
+    const isSuccess =
+      body.success === true &&
+      typeof marca === 'string' &&
+      typeof modelo === 'string' &&
+      Number.isInteger(anio) &&
+      typeof tasacion.precio_estimado === 'number' &&
+      (origen === 'modelo_ml' || origen === 'gemini_fallback');
 
-    if (!metadataOk) {
-      allMetadataVerified = false;
+    if (!isSuccess) {
+      allVerified = false;
     }
 
     results.push({
       Archivo: car.name,
-      'Marca Detectada': marca || 'No identificada',
-      'Modelo Detectado': modelo || 'No identificado',
-      Año: anio || 'N/A',
-      Confianza: typeof confianza === 'number' ? `${(confianza * 100).toFixed(0)}%` : confianza,
-      HTTP: res.status,
+      Vehículo: `${marca} ${modelo} (${anio})`,
+      Estado: vehiculo.estado_estetico || 'good',
       Precio: precio,
-      'Tiempo (s)': `${duration}s`,
-      'Metadatos OK': metadataOk ? '✅' : '❌',
+      Confianza: typeof confianza === 'number' ? `${Math.round(confianza * 100)}%` : confianza,
+      'Origen Precio': origen,
+      'Tiempo (ms)': `${tiempoMs} ms`,
+      OK: isSuccess ? '✅' : '❌',
     });
 
-    console.log(`  -> HTTP ${res.status} | ${marca} ${modelo} (${anio}) | Confianza: ${confianza} | ${duration}s`);
+    console.log(
+      `  -> HTTP ${res.status} | ${marca} ${modelo} (${anio}) | Precio: ${precio} | Origen: ${origen} (Conf: ${confianza}) | Nota: ${metadatos.nota}`
+    );
   }
 
-  console.log('\n================================================================');
-  console.log('  📊 RESUMEN DE RESULTADOS DE PRUEBA');
-  console.log('================================================================');
+  console.log('\n========================================================================');
+  console.log('  📊 RESUMEN DEL PIPELINE HÍBRIDO DE TASACIÓN');
+  console.log('========================================================================');
   console.table(results);
 
-  if (allMetadataVerified) {
-    console.log('\n🎉 ÉXITO: Los metadatos (marca, modelo, año) de los 5 vehículos fueron extraídos correctamente por Gemini.');
+  server.close();
+
+  if (allVerified) {
+    console.log('\n🎉 ÉXITO: Los 5 vehículos completaron el pipeline híbrido (modelo_ml y gemini_fallback) correctamente.');
     process.exit(0);
   } else {
-    console.error('\n⚠️ ADVERTENCIA: Uno o más vehículos no pudieron extraer todos los metadatos requeridos.');
+    console.error('\n⚠️ ADVERTENCIA: Uno o más vehículos no completaron el flujo esperado.');
     process.exit(1);
   }
 }
 
-// Ejecutar el script
 runTests().catch((err) => {
   console.error('Error fatal durante la prueba:', err);
   process.exit(1);

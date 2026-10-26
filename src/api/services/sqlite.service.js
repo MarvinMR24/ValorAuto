@@ -1,6 +1,13 @@
 import fs from 'fs';
 import { config } from '../config/config.js';
-import { normalizeManufacturer, normalizeVehicleType } from '../utils/normalizer.js';
+import {
+  normalizeManufacturer,
+  normalizeVehicleType,
+  normalizeCondition,
+  fuzzyMatch,
+  BRAND_ALIASES,
+  normalizeText,
+} from '../utils/normalizer.js';
 import { logger } from '../utils/logger.js';
 
 /**
@@ -8,7 +15,6 @@ import { logger } from '../utils/logger.js';
  * Compatible tanto con 'bun:sqlite' nativo de Bun como con 'better-sqlite3'.
  */
 async function createDatabaseConnection(dbPath) {
-  // En entorno Bun, preferir bun:sqlite que es nativo, ultra-rápido y no requiere binarios C++
   if (typeof Bun !== 'undefined') {
     try {
       const { Database } = await import('bun:sqlite');
@@ -28,7 +34,6 @@ async function createDatabaseConnection(dbPath) {
     }
   }
 
-  // En entorno Node.js o como fallback
   try {
     const Database = (await import('better-sqlite3')).default;
     return new Database(dbPath, { readonly: true, fileMustExist: true });
@@ -43,18 +48,23 @@ export class SqlitePrecalcService {
     this.tableName = config.database.tableName;
     this.odometerRanges = config.database.odometerRanges;
     this.baselineMae = config.model.baselineMae;
+    this.productionR2 = config.model.productionR2 || 0.8482;
     this.db = null;
+    this.lastMtimeMs = null;
     this.tableColumns = new Set();
     this.knownManufacturers = [];
   }
 
   /**
    * Obtiene la conexión a SQLite en modo singleton de solo lectura.
+   * Detecta automáticamente si el archivo data/precalc.db fue reemplazado atómicamente
+   * (os.replace() del job nocturno según ADR-0003 y ADR-0007) mediante su mtimeMs.
    */
   async getDb() {
-    if (this.db) return this.db;
-
     if (!fs.existsSync(this.dbPath)) {
+      if (this.db) {
+        this.resetConnection();
+      }
       logger.warn(
         { dbPath: this.dbPath },
         '[SQLite] Advertencia: Base de datos no encontrada. El pipeline nocturno debe ejecutarse para generarla.'
@@ -63,7 +73,23 @@ export class SqlitePrecalcService {
     }
 
     try {
+      const stats = fs.statSync(this.dbPath);
+      const currentMtimeMs = stats.mtimeMs;
+
+      if (this.db && this.lastMtimeMs !== null && this.lastMtimeMs === currentMtimeMs) {
+        return this.db;
+      }
+
+      if (this.db) {
+        logger.info(
+          { dbPath: this.dbPath, prevMtime: this.lastMtimeMs, newMtime: currentMtimeMs },
+          '[SQLite] Detectado swap atómico (os.replace) en data/precalc.db; recargando conexión de solo lectura'
+        );
+        this.resetConnection();
+      }
+
       this.db = await createDatabaseConnection(this.dbPath);
+      this.lastMtimeMs = currentMtimeMs;
       await this._inspectTableColumns();
       await this._loadKnownManufacturers();
       return this.db;
@@ -71,6 +97,21 @@ export class SqlitePrecalcService {
       logger.error({ error: err.message, dbPath: this.dbPath }, '[SQLite] Error al conectar con la base de datos');
       return null;
     }
+  }
+
+  /**
+   * Permite reiniciar la conexión en caso de recarga de datos o tests.
+   */
+  resetConnection() {
+    if (this.db && typeof this.db.close === 'function') {
+      try {
+        this.db.close();
+      } catch {
+        // Ignorar errores al cerrar
+      }
+    }
+    this.db = null;
+    this.lastMtimeMs = null;
   }
 
   /**
@@ -119,18 +160,29 @@ export class SqlitePrecalcService {
   }
 
   /**
-   * Consulta el precio precalculado para un vehículo según sus características.
-   * ADR-0007: Índice por (manufacturer, year, type).
-   * Aplica normalización y Fuzzy Matching para evitar falsos 404s.
+   * FASE 2: Consulta al Modelo ML de Leo / Base Precalculada (data/precalc.db).
+   * Recupera la estimación de precio y calcula su nivel de confianza (score entre 0 y 1)
+   * basado en el R² del modelo XGBoost en producción (0.8482) y la precisión del emparejamiento.
    *
    * @param {Object} params
    * @param {string} params.manufacturer - Marca del vehículo (ej: 'toyota', 'chevy')
+   * @param {string} [params.model] - Modelo del vehículo (ej: 'corolla')
    * @param {number} params.year - Año de fabricación (ej: 2015)
    * @param {string} [params.type] - Tipo de carrocería (ej: 'sedan', 'pickup')
-   * @param {number} params.odometer - Kilometraje real o ya discretizado
-   * @returns {Promise<{ precio_estimado: number, precio_min: number, precio_max: number, rango_km: number, queryTimeMs: number } | null>}
+   * @param {string} [params.condition] - Estado estético (ej: 'good', 'excellent')
+   * @param {number} params.odometer - Kilometraje real
+   * @param {boolean} [params.allowYearInterpolation=false] - Si true, interpola años cercanos (<=3 años) cuando no hay coincidencia exacta
+   * @returns {Promise<{ precio_estimado: number, precio_min: number, precio_max: number, rango_km: number, confianza: number, matchType: string, queryTimeMs: number, detalles: object } | null>}
    */
-  async queryPrice({ manufacturer, year, type = null, odometer }) {
+  async queryPrice({
+    manufacturer,
+    model = '',
+    year,
+    type = null,
+    condition = 'good',
+    odometer,
+    allowYearInterpolation = false,
+  }) {
     const startTime = performance.now();
     const db = await this.getDb();
     if (!db) {
@@ -139,20 +191,34 @@ export class SqlitePrecalcService {
 
     const rangoKm = this.discretizeOdometer(odometer);
 
-    // Normalización y Fuzzy Matching de la marca contra la base de datos
-    const normManufacturer = normalizeManufacturer(manufacturer, this.knownManufacturers);
+    // Evaluar coincidencia de marca y puntaje difuso (fuzzy score)
+    const cleanInputBrand = normalizeText(manufacturer);
+    const aliasedBrand = BRAND_ALIASES[cleanInputBrand] || cleanInputBrand;
+    let normManufacturer = aliasedBrand;
+    let fuzzyPenalty = 0;
+
+    if (this.knownManufacturers.length > 0) {
+      const matched = fuzzyMatch(aliasedBrand, this.knownManufacturers, 0.35);
+      if (matched) {
+        normManufacturer = matched.match.toLowerCase();
+        fuzzyPenalty = matched.score * 0.2; // Penalización leve si hubo corrección ortográfica
+      }
+    }
+
     const normYear = Number(year);
     const normType = normalizeVehicleType(type);
+    const normCondition = normalizeCondition(condition);
 
-    // Detectar qué nombre de columna de kilometraje tiene la tabla (odometer o rango_km)
     const odoCol = this.tableColumns.has('rango_km') ? 'rango_km' : 'odometer';
 
     let row = null;
+    let matchType = 'none';
+    let baseConfidence = 0;
 
-    // 1. Intento principal: coincidencia exacta por (manufacturer, year, type, rango_km)
+    // 1. Nivel 1 (Alta Confianza): Coincidencia exacta por (manufacturer, year, type, odometer/rango_km) - ADR-0007
     if (normType && this.tableColumns.has('type')) {
       try {
-        const queryWithSql = `
+        const queryExact = `
           SELECT * FROM ${this.tableName}
           WHERE LOWER(manufacturer) = LOWER(?)
             AND year = ?
@@ -160,26 +226,57 @@ export class SqlitePrecalcService {
             AND ${odoCol} = ?
           LIMIT 1
         `;
-        row = db.prepare(queryWithSql).get(normManufacturer, normYear, normType, rangoKm);
+        row = db.prepare(queryExact).get(normManufacturer, normYear, normType, rangoKm);
+        if (row) {
+          matchType = 'exact_match';
+          baseConfidence = Math.max(0.85, this.productionR2); // ~0.85 (basado en R2=0.8482 de XGBoost v3)
+        }
       } catch (err) {
-        logger.warn({ error: err.message }, '[SQLite] Consulta con tipo falló');
+        logger.warn({ error: err.message }, '[SQLite] Consulta exacta con tipo falló');
       }
     }
 
-    // 2. Si no se especificó tipo o no hubo coincidencia con ese tipo específico,
-    // consultar por (manufacturer, year, rango_km) ignorando el tipo
+    // 2. Nivel 2 (Buena Confianza): Fallback a (manufacturer, year, odometer/rango_km) si type no coincide - ADR-0007
     if (!row) {
       try {
-        const queryFallback = `
+        const queryNoType = `
           SELECT * FROM ${this.tableName}
           WHERE LOWER(manufacturer) = LOWER(?)
             AND year = ?
             AND ${odoCol} = ?
           LIMIT 1
         `;
-        row = db.prepare(queryFallback).get(normManufacturer, normYear, rangoKm);
+        row = db.prepare(queryNoType).get(normManufacturer, normYear, rangoKm);
+        if (row) {
+          matchType = 'type_fallback';
+          baseConfidence = 0.78;
+        }
       } catch (err) {
-        logger.error({ error: err.message }, '[SQLite] Error en consulta fallback');
+        logger.error({ error: err.message }, '[SQLite] Error en consulta sin tipo');
+      }
+    }
+
+    // 3. Nivel 3 (Opcional): Interpolación por Año Cercano (<= 3 años) solo si se habilita explícitamente
+    if (!row && allowYearInterpolation) {
+      try {
+        const queryNearbyYear = `
+          SELECT *, ABS(year - ?) as year_diff FROM ${this.tableName}
+          WHERE LOWER(manufacturer) = LOWER(?)
+            AND ${odoCol} = ?
+            AND ABS(year - ?) <= 3
+          ORDER BY year_diff ASC
+          LIMIT 1
+        `;
+        row = db.prepare(queryNearbyYear).get(normYear, normManufacturer, rangoKm, normYear);
+        if (row) {
+          const yearDiff = Math.abs(Number(row.year) - normYear);
+          matchType = 'year_interpolated';
+          if (yearDiff === 1) baseConfidence = 0.68;
+          else if (yearDiff === 2) baseConfidence = 0.58;
+          else baseConfidence = 0.48;
+        }
+      } catch (err) {
+        logger.warn({ error: err.message }, '[SQLite] Error en consulta por año cercano');
       }
     }
 
@@ -189,7 +286,7 @@ export class SqlitePrecalcService {
       return null;
     }
 
-    // Extraer el precio estimado de las columnas posibles (predicted_price o precio_estimado)
+    // Extraer el precio estimado directamente de la tabla precalculada (ADR-0003 / ADR-0007)
     const rawPrice =
       row.predicted_price ??
       row.precio_estimado ??
@@ -200,9 +297,29 @@ export class SqlitePrecalcService {
       return null;
     }
 
-    const precioEstimado = Math.round(Number(rawPrice) * 100) / 100;
+    let adjustedPrice = Number(rawPrice);
 
-    // Cálculo del rango derivado del error MAE del modelo baseline (XGBoost: ~3778 USD)
+    // Si el año fue interpolado explícitamente, ajustar el precio a razón de ~6.5% por año de diferencia
+    if (matchType === 'year_interpolated' && row.year) {
+      const yearDelta = normYear - Number(row.year);
+      adjustedPrice *= Math.pow(1.065, yearDelta);
+    }
+
+    const precioEstimado = Math.round(adjustedPrice * 100) / 100;
+
+    // Penalización de confianza si el odómetro real se aleja demasiado del rango máximo precalculado
+    const odoDistance = Math.abs(Number(odometer) - rangoKm);
+    const odoPenalty = odoDistance > 80000 ? 0.18 : odoDistance > 40000 ? 0.05 : 0;
+
+    // Calcular confianza final del modelo ML (entre 0.10 y 0.98)
+    const computedConfidence =
+      row.confidence !== undefined && row.confidence !== null
+        ? Number(row.confidence)
+        : Math.max(0.1, Math.min(0.98, baseConfidence - fuzzyPenalty - odoPenalty));
+
+    const confianzaFinal = Math.round(computedConfidence * 100) / 100;
+
+    // Cálculo del rango derivado del error MAE del modelo (BASELINE_MAE=3778 según ADR-0003 / docs/evidence/baseline-modelo.md)
     const mae = Number(row.mae ?? this.baselineMae);
     const precioMin = Math.max(0, Math.round(precioEstimado - mae));
     const precioMax = Math.round(precioEstimado + mae);
@@ -212,10 +329,14 @@ export class SqlitePrecalcService {
       precio_min: precioMin,
       precio_max: precioMax,
       rango_km: rangoKm,
+      confianza: confianzaFinal,
+      matchType,
       queryTimeMs,
       detalles: {
         manufacturer_consultado: normManufacturer,
+        year_base_db: row.year,
         type: row.type ?? normType,
+        condition: normCondition,
         fuel: row.fuel,
         transmission: row.transmission,
         drive: row.drive,

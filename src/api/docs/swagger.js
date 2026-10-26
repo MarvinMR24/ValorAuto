@@ -1,22 +1,22 @@
 import { config } from '../config/config.js';
 
 /**
- * Especificación OpenAPI 3.0.0 para ValorAuto REST API
+ * Especificación OpenAPI 3.0.3 para ValorAuto REST API
+ * Documenta los dos endpoints claramente diferenciados:
+ * - POST /tasacion        (Tasación por Texto con payload JSON y campo 'texto')
+ * - POST /tasacion/imagen (Tasación por Imagen con multipart/form-data y campo 'imagen')
  */
 export const swaggerSpec = {
   openapi: '3.0.3',
   info: {
     title: 'ValorAuto REST API',
-    version: '1.2.0',
+    version: '2.1.0',
     description: `
-**API de Tasación Inteligente de Vehículos con Visión Artificial y Machine Learning**
+**API de Tasación Inteligente de Vehículos (Texto y Visión con Gemini + Modelo ML Precalculado en SQLite)**
 
-Arquitectura y principios de diseño:
-- **ADR-0001:** Backend modular sobre Node.js/Express optimizado para el runtime ultra-rápido **Bun**.
-- **ADR-0003:** Inferencia en tiempo real (<200 ms) alimentada por precálculo nocturno de modelos ML.
-- **ADR-0004:** Gemini Vision exclusivo para extracción visual de metadata (marca, modelo, año).
-- **ADR-0007:** SQLite optimizado para lectura indexada con fallback heurístico.
-- **Seguridad & Rendimiento:** Rate limiting (10 req/min), validación con Zod, Helmet y caché SHA-256 en memoria.
+Endpoints disponibles de valoración:
+1. **\`POST /tasacion\` (Tasación por Texto):** Recibe un payload \`application/json\` con el campo \`texto\` (o atributos desglosados), normaliza ortografía y verifica la existencia real del automóvil con Google Gemini (\`${config.geminiModel}\`), y consulta la tasación precalculada en SQLite (\`data/precalc.db\`).
+2. **\`POST /tasacion/imagen\` (Tasación por Imagen):** Recibe un formulario \`multipart/form-data\` con la fotografía del auto en el campo \`imagen\`, limpia el base64, valida el \`mimeType\` exacto y extrae marca, modelo, año, carrocería y estado estético con Gemini Vision para consultar el precio en SQLite.
     `.trim(),
     contact: {
       name: 'Equipo de Arquitectura ValorAuto',
@@ -28,37 +28,65 @@ Arquitectura y principios de diseño:
       description: 'Servidor local de desarrollo / pruebas',
     },
   ],
+  tags: [
+    {
+      name: 'Tasación por Texto',
+      description: 'Valoración de vehículos a partir de descripción textual en JSON (POST /tasacion)',
+    },
+    {
+      name: 'Tasación por Imagen (Visión)',
+      description: 'Valoración de vehículos a partir de una fotografía mediante Gemini Vision (POST /tasacion/imagen)',
+    },
+    {
+      name: 'Diagnóstico',
+      description: 'Salud del sistema, estado de SQLite, caché y métricas',
+    },
+  ],
   paths: {
     '/tasacion': {
       post: {
-        summary: 'Tasar vehículo mediante fotografía y kilometraje',
+        tags: ['Tasación por Texto'],
+        summary: 'Tasar vehículo por texto (JSON con campo "texto")',
         description: `
-Recibe la imagen de un vehículo y su kilometraje actual.
-1. Valida el formato y tamaño (JPG/PNG/WEBP <= 5 MB, kilometraje 0..500,000).
-2. Computa el hash SHA-256 de la imagen para consultar el caché en memoria (LRU Cache).
-3. Si es una nueva imagen, consulta a Gemini Vision para clasificar marca, modelo y año.
-4. Consulta la base de datos de precios precalculados SQLite (data/precalc.db) con Fuzzy Matching.
-5. Devuelve la estimación con intervalo de confianza basado en el error MAE del modelo.
+Recibe una descripción en texto del vehículo mediante \`application/json\` (campo \`texto\` o campos estructurados).
+- Corrige errores ortográficos (ej. *"Toyotta Corola"* -> *"Toyota Corolla"*).
+- Verifica que el modelo exista comercialmente (rechaza vehículos ficticios con \`422\`).
+- Consulta el precio estimado en SQLite (\`data/precalc.db\`).
         `.trim(),
         requestBody: {
           required: true,
           content: {
-            'multipart/form-data': {
+            'application/json': {
               schema: {
                 type: 'object',
-                required: ['imagen', 'odometer'],
+                required: ['texto'],
                 properties: {
-                  imagen: {
+                  texto: {
                     type: 'string',
-                    format: 'binary',
-                    description: 'Fotografía del vehículo (JPG, PNG o WEBP, máx 5 MB). También se admiten los campos "image", "photo" o "file".',
+                    example: 'Toyotta Corola 2020 con 45000 km sedan excelente estado',
+                    description: 'Descripción textual del vehículo (marca, modelo, año, kilometraje, estado)',
                   },
-                  odometer: {
+                  kilometraje: {
                     type: 'integer',
                     minimum: 0,
-                    maximum: 500000,
-                    example: 52000,
-                    description: 'Kilometraje actual del vehículo en kilómetros. También se admite como "kilometraje".',
+                    maximum: 1000000,
+                    example: 45000,
+                    description: 'Kilometraje en km (opcional si ya se incluye dentro de "texto")',
+                  },
+                  marca: {
+                    type: 'string',
+                    example: 'Toyota',
+                    description: 'Marca del vehículo (opcional en modo estructurado)',
+                  },
+                  modelo: {
+                    type: 'string',
+                    example: 'Corolla',
+                    description: 'Modelo del vehículo (opcional en modo estructurado)',
+                  },
+                  anio: {
+                    type: 'integer',
+                    example: 2020,
+                    description: 'Año de fabricación entre 1980 y actual + 1 (opcional)',
                   },
                 },
               },
@@ -67,104 +95,141 @@ Recibe la imagen de un vehículo y su kilometraje actual.
         },
         responses: {
           '200': {
-            description: 'Tasación calculada exitosamente',
+            description: 'Tasación por texto calculada exitosamente',
             content: {
               'application/json': {
                 schema: {
                   $ref: '#/components/schemas/TasacionResponse',
                 },
-                example: {
-                  marca: 'toyota',
-                  modelo: 'corolla',
-                  anio: 2018,
-                  precio_estimado: 14500,
-                  precio_min: 10722,
-                  precio_max: 18278,
-                  rango_km_consultado: 50000,
-                  confianza_vision: 0.95,
-                  fuente_precio: 'sqlite_precalculo',
-                  _metricas: {
-                    duracion_total_ms: 124.5,
-                    duracion_vision_ms: 110.2,
-                    duracion_pricing_ms: 4.8,
-                    cache_hit: false,
-                  },
-                },
               },
             },
           },
           '400': {
-            description: 'Parámetros inválidos (falta imagen, formato no admitido, kilometraje fuera de rango 0..500,000)',
+            description: 'Datos inválidos (texto vacío/basura, kilometraje fuera de rango 0..1,000,000 o INVALID_ARGUMENT)',
             content: {
               'application/json': {
                 schema: {
                   $ref: '#/components/schemas/ErrorResponse',
-                },
-                example: {
-                  error: 'kilometraje_invalido',
-                  message: 'El kilometraje debe ser coherente (máximo 500,000 km).',
                 },
               },
             },
           },
           '404': {
-            description: 'Combinación de vehículo no encontrada en la base de datos de precios precalculados',
+            description: 'Combinación de vehículo no encontrada en la base precalculada (ADR-0003)',
             content: {
               'application/json': {
                 schema: {
                   $ref: '#/components/schemas/ErrorResponse',
-                },
-                example: {
-                  error: 'combinacion_no_precalculada',
-                  message: 'No se encontró una tasación precalculada para peugeot 208 (2019).',
-                  vehiculo_identificado: {
-                    marca: 'peugeot',
-                    modelo: '208',
-                    anio: 2019,
-                    confianza: 0.92,
-                  },
                 },
               },
             },
           },
           '422': {
-            description: 'Vehículo no identificado en la imagen o confianza insuficiente (< 0.60)',
+            description: 'Vehículo inexistente en el mercado automotriz o irreconocible',
             content: {
               'application/json': {
                 schema: {
                   $ref: '#/components/schemas/ErrorResponse',
-                },
-                example: {
-                  error: 'vehiculo_no_identificado',
-                  message: 'No se pudo identificar el vehículo en la fotografía. Intenta con una imagen más clara y frontal.',
                 },
               },
             },
           },
           '429': {
-            description: 'Límite de peticiones por minuto excedido (Rate Limiting)',
+            description: 'Límite de peticiones por minuto excedido (Rate Limiting: 10 req/min)',
             content: {
               'application/json': {
                 schema: {
                   $ref: '#/components/schemas/ErrorResponse',
-                },
-                example: {
-                  error: 'limite_excedido',
-                  message: 'Has superado el límite de 10 peticiones por minuto. Por favor espera antes de volver a consultar.',
                 },
               },
             },
           },
-          '503': {
-            description: 'Servicio de visión externo no disponible o timeout de red agotado',
+        },
+      },
+    },
+    '/tasacion/imagen': {
+      post: {
+        tags: ['Tasación por Imagen (Visión)'],
+        summary: 'Tasar vehículo por fotografía (multipart/form-data con campo "imagen")',
+        description: `
+Recibe la fotografía de un vehículo mediante \`multipart/form-data\` en el campo \`imagen\`.
+- Valida que la imagen esté presente y que su \`mimeType\` sea exactamente \`image/jpeg\`, \`image/png\` o \`image/webp\`.
+- Limpia prefijos \`data:image/...;base64,\` antes de invocar Gemini Vision.
+- Si Gemini devuelve \`400\` o \`INVALID_ARGUMENT\`, responde inmediatamente \`400\` al cliente sin reintentar. Solo reintenta ante errores \`429\` o \`503\`.
+- Consulta el precio estimado en SQLite (\`data/precalc.db\`).
+        `.trim(),
+        requestBody: {
+          required: true,
+          content: {
+            'multipart/form-data': {
+              schema: {
+                type: 'object',
+                required: ['imagen'],
+                properties: {
+                  imagen: {
+                    type: 'string',
+                    format: 'binary',
+                    description: 'Fotografía del vehículo (formatos admitidos: JPG, PNG, WEBP, máx. 8 MB)',
+                  },
+                  kilometraje: {
+                    type: 'integer',
+                    minimum: 0,
+                    maximum: 1000000,
+                    example: 45000,
+                    description: 'Kilometraje actual del vehículo en km (opcional, por defecto 50,000 km)',
+                  },
+                },
+              },
+            },
+          },
+        },
+        responses: {
+          '200': {
+            description: 'Tasación por imagen calculada exitosamente',
+            content: {
+              'application/json': {
+                schema: {
+                  $ref: '#/components/schemas/TasacionResponse',
+                },
+              },
+            },
+          },
+          '400': {
+            description: 'Imagen ausente, formato MIME no permitido o error 400 INVALID_ARGUMENT de Gemini Vision',
             content: {
               'application/json': {
                 schema: {
                   $ref: '#/components/schemas/ErrorResponse',
                 },
-                example: {
-                  error: 'vision_no_disponible',
-                  message: 'El servicio de visión no está disponible actualmente. Inténtalo de nuevo más tarde.',
+              },
+            },
+          },
+          '404': {
+            description: 'Vehículo identificado visualmente pero sin combinación precalculada en SQLite',
+            content: {
+              'application/json': {
+                schema: {
+                  $ref: '#/components/schemas/ErrorResponse',
+                },
+              },
+            },
+          },
+          '422': {
+            description: 'No se pudo identificar un vehículo en la imagen o confianza visual insuficiente (< 0.60)',
+            content: {
+              'application/json': {
+                schema: {
+                  $ref: '#/components/schemas/ErrorResponse',
+                },
+              },
+            },
+          },
+          '429': {
+            description: 'Límite de peticiones por minuto excedido (Rate Limiting: 10 req/min)',
+            content: {
+              'application/json': {
+                schema: {
+                  $ref: '#/components/schemas/ErrorResponse',
                 },
               },
             },
@@ -174,8 +239,8 @@ Recibe la imagen de un vehículo y su kilometraje actual.
     },
     '/health': {
       get: {
+        tags: ['Diagnóstico'],
         summary: 'Diagnóstico de salud del servicio, base de datos y métricas del sistema',
-        description: 'Reporta el estado operativo general, verificación de SQLite, clave de Gemini, estadísticas de caché y memoria.',
         responses: {
           '200': {
             description: 'Diagnóstico de salud exitoso',
@@ -183,36 +248,6 @@ Recibe la imagen de un vehículo y su kilometraje actual.
               'application/json': {
                 schema: {
                   $ref: '#/components/schemas/HealthResponse',
-                },
-                example: {
-                  status: 'OK',
-                  timestamp: '2026-10-26T01:30:00.000Z',
-                  service: 'ValorAuto REST API',
-                  uptimeSeconds: 3600,
-                  runtime: 'Bun v1.4.2',
-                  database: {
-                    status: 'connected',
-                    path: 'data/precalc.db',
-                    precalculatedRows: 10,
-                    knownBrands: 4,
-                  },
-                  geminiApi: {
-                    configured: true,
-                    maskedKey: 'AQ.Ab8RN...TQ',
-                    model: 'gemini-3.5-flash',
-                  },
-                  cache: {
-                    size: 15,
-                    max: 500,
-                    hits: 42,
-                    misses: 15,
-                    hitRate: '73.7%',
-                  },
-                  memory: {
-                    rssMb: 64.2,
-                    heapTotalMb: 32.1,
-                    heapUsedMb: 24.5,
-                  },
                 },
               },
             },
@@ -226,22 +261,42 @@ Recibe la imagen de un vehículo y su kilometraje actual.
       TasacionResponse: {
         type: 'object',
         properties: {
-          marca: { type: 'string', example: 'toyota' },
-          modelo: { type: 'string', example: 'corolla' },
-          anio: { type: 'integer', example: 2018 },
-          precio_estimado: { type: 'number', example: 14500 },
-          precio_min: { type: 'number', example: 10722 },
-          precio_max: { type: 'number', example: 18278 },
-          rango_km_consultado: { type: 'integer', example: 50000 },
-          confianza_vision: { type: 'number', example: 0.95 },
-          fuente_precio: { type: 'string', example: 'sqlite_precalculo' },
-          _metricas: {
+          success: { type: 'boolean', example: true },
+          vehiculo: {
             type: 'object',
             properties: {
-              duracion_total_ms: { type: 'number' },
-              duracion_vision_ms: { type: 'number' },
-              duracion_pricing_ms: { type: 'number' },
-              cache_hit: { type: 'boolean' },
+              marca: { type: 'string', example: 'Toyota' },
+              modelo: { type: 'string', example: 'Corolla' },
+              anio: { type: 'integer', example: 2020 },
+              kilometraje: { type: 'integer', example: 45000 },
+              tipo: { type: 'string', example: 'sedan' },
+              estado_estetico: { type: 'string', example: 'good' },
+            },
+          },
+          tasacion: {
+            type: 'object',
+            properties: {
+              precio_estimado: { type: 'number', example: 15500 },
+              precio_min: { type: 'number', example: 11722 },
+              precio_max: { type: 'number', example: 19278 },
+              moneda: { type: 'string', example: 'USD' },
+              confianza: { type: 'number', example: 0.85 },
+              confianza_porcentaje: { type: 'string', example: '85%' },
+              origen_precio: {
+                type: 'string',
+                enum: ['modelo_ml', 'gemini_fallback'],
+                example: 'modelo_ml',
+              },
+            },
+          },
+          metadatos: {
+            type: 'object',
+            properties: {
+              tiempo_respuesta_ms: { type: 'number', example: 1250 },
+              nota: {
+                type: 'string',
+                example: 'Precio calculado exitosamente con el modelo ML local.',
+              },
             },
           },
         },
@@ -249,9 +304,10 @@ Recibe la imagen de un vehículo y su kilometraje actual.
       ErrorResponse: {
         type: 'object',
         properties: {
-          error: { type: 'string', example: 'kilometraje_invalido' },
-          message: { type: 'string', example: 'El kilometraje debe ser coherente.' },
-          detalles: { type: 'array', items: { type: 'object' } },
+          success: { type: 'boolean', example: false },
+          error: { type: 'string', example: 'imagen_invalida' },
+          status: { type: 'string', example: 'INVALID_ARGUMENT' },
+          message: { type: 'string', example: 'No se ha proporcionado ninguna imagen del vehículo en el campo "imagen".' },
         },
       },
       HealthResponse: {

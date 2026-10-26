@@ -18,7 +18,7 @@ const fileFilter = (req, file, cb) => {
 const upload = multer({
   storage,
   limits: {
-    fileSize: config.upload.maxFileSizeBytes, // 5 MB
+    fileSize: config.upload.maxFileSizeBytes, // 8 MB (ADR-0001 / OpenSpec)
   },
   fileFilter,
 });
@@ -26,13 +26,14 @@ const upload = multer({
 /**
  * Middleware para procesar la subida multipart/form-data:
  * - Acepta el archivo de imagen en los campos 'imagen', 'image', 'photo' o 'file'.
- * - Controla límites de tamaño físico (5 MB) y tipos MIME.
+ * - Controla límites de tamaño físico (8 MB) y tipos MIME.
  */
 export const uploadTasacionMiddleware = (req, res, next) => {
   const uploadFields = upload.fields([
     { name: 'imagen', maxCount: 1 },
     { name: 'image', maxCount: 1 },
     { name: 'photo', maxCount: 1 },
+    { name: 'foto', maxCount: 1 },
     { name: 'file', maxCount: 1 },
   ]);
 
@@ -40,17 +41,20 @@ export const uploadTasacionMiddleware = (req, res, next) => {
     if (err) {
       if (err instanceof multer.MulterError && err.code === 'LIMIT_FILE_SIZE') {
         return res.status(400).json({
+          success: false,
           error: 'imagen_invalida',
           message: `La imagen excede el límite permitido de ${config.upload.maxFileSizeBytes / (1024 * 1024)} MB.`,
         });
       }
       if (err.code === 'INVALID_FILE_TYPE') {
         return res.status(400).json({
+          success: false,
           error: 'imagen_invalida',
           message: err.message,
         });
       }
       return res.status(400).json({
+        success: false,
         error: 'imagen_invalida',
         message: `Error al procesar el archivo: ${err.message}`,
       });
@@ -62,6 +66,7 @@ export const uploadTasacionMiddleware = (req, res, next) => {
       files?.imagen?.[0] ||
       files?.image?.[0] ||
       files?.photo?.[0] ||
+      files?.foto?.[0] ||
       files?.file?.[0] ||
       req.file;
 
