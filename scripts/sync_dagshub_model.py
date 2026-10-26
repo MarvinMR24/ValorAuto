@@ -7,17 +7,22 @@ import pandas as pd
 from xgboost import XGBRegressor
 from mlflow.tracking import MlflowClient
 
-# Inicializar autenticación oficial de DagsHub
-dagshub.auth.add_app_token('ef4d67bd55463e83ebd7d087f3eb5acf46b073ea')
+from src.model import config, features  # carga el .env de la raíz (load_dotenv en src/model/config.py)
+
+# Autenticación de DagsHub con el token del .env (nunca en el código, ver .env.example):
+# MLFLOW_TRACKING_PASSWORD es el token de DagsHub (Settings -> Tokens).
+_token = os.getenv("DAGSHUB_TOKEN") or os.getenv("MLFLOW_TRACKING_PASSWORD")
+if not _token:
+    sys.exit("Falta el token de DagsHub: define MLFLOW_TRACKING_PASSWORD (o DAGSHUB_TOKEN) en el .env de la raíz.")
+dagshub.auth.add_app_token(_token)
 dagshub.init(repo_owner='SNARF3', repo_name='ValorAutoData', mlflow=True)
 
-from src.model import config, features
 from scripts.train_new_models import train_and_log_custom
 
 def run():
     print("Cargando dataset...")
-    cols = config.FEATURES + [config.TARGET]
-    df_clean = pd.read_csv(config.DATA_CLEAN_PATH, usecols=cols)
+    # Se lee completo: model_base se deriva de `model` en features.split_data (ADR-0010)
+    df_clean = pd.read_csv(config.DATA_CLEAN_PATH)
     X_train, X_test, y_train, y_test = features.split_data(df_clean)
     preprocessor = features.build_preprocessor()
 
