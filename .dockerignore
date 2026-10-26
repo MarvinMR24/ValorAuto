@@ -1,0 +1,19 @@
+# Build context liviano: la imagen solo necesita requirements.txt para
+# instalar dependencias (COPY requirements.txt .); todo lo demas (codigo,
+# notebooks, datos) llega en runtime via el bind mount ".:/app" del
+# docker-compose.yml, no se copia dentro de la imagen.
+.git/
+node_modules/
+app/node_modules/
+data/
+mlruns/
+notebooks/mlruns/
+mlflow.db
+*.csv
+*.db
+src/graphics/
+.expo/
+.expo-shared/
+__pycache__/
+*.pyc
+.DS_Store

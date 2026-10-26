@@ -1,0 +1,73 @@
+# Docker Compose del pipeline y servicios de ValorAuto.
+#
+#   docker compose up mlflow            # UI de MLflow en http://localhost:5001
+#   docker compose up api               # Backend Express en http://localhost:3000
+#   docker compose run --rm training    # Reentrena los modelos y regenera precalc.db
+#   docker compose run --rm test-ml     # Corre las pruebas unitarias del pipeline de ML
+#
+services:
+  mlflow:
+    build:
+      context: .
+      dockerfile: docker/Dockerfile
+    container_name: valorauto-mlflow
+    working_dir: /app
+    volumes:
+      - .:/app
+    ports:
+      - "5001:5000"
+    command: >
+      mlflow server
+      --backend-store-uri sqlite:///mlflow.db
+      --default-artifact-root ./mlruns
+      --host 0.0.0.0
+      --port 5000
+    restart: unless-stopped
+
+  api:
+    build:
+      context: ./src/api
+      dockerfile: Dockerfile
+    container_name: valorauto-api
+    working_dir: /app
+    env_file:
+      - .env
+    environment:
+      - PORT=3000
+      - DATABASE_PATH=/app/data/precalc.db
+    volumes:
+      - ./data:/app/data:ro
+    ports:
+      - "3000:3000"
+    restart: unless-stopped
+
+  training:
+    build:
+      context: .
+      dockerfile: docker/Dockerfile
+    working_dir: /app
+    env_file:
+      - .env
+    volumes:
+      - .:/app
+      - ./data:/app/data
+    profiles: ["tools"]
+    command: >
+      sh -c "
+        python3 -m nbconvert --to notebook --execute --inplace --ExecutePreprocessor.cwd=/app --ExecutePreprocessor.timeout=600 notebooks/01_eda.ipynb &&
+        python3 -m nbconvert --to notebook --execute --inplace --ExecutePreprocessor.cwd=/app --ExecutePreprocessor.timeout=600 notebooks/02_entrenamiento.ipynb &&
+        python3 -m nbconvert --to notebook --execute --inplace --ExecutePreprocessor.cwd=/app --ExecutePreprocessor.timeout=600 notebooks/03_precalculo.ipynb
+      "
+
+  test-ml:
+    build:
+      context: .
+      dockerfile: docker/Dockerfile
+    working_dir: /app
+    env_file:
+      - .env
+    volumes:
+      - .:/app
+      - ./data:/app/data
+    profiles: ["tools"]
+    command: pytest tests/test_model_pipeline.py -v
